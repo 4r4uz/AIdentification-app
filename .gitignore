@@ -11,6 +11,7 @@
 .svn/
 .swiftpm/
 migrate_working_dir/
+.vscode/
 
 # IntelliJ related
 *.iml
@@ -43,3 +44,9 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Extra
+/linux/
+/windows/
+/macos/
+/web/
