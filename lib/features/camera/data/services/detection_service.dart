@@ -36,10 +36,6 @@ class DetectionService {
       final detection = DetectionModel.fromJson(response);
       ProfileRefreshNotifier.notifyDetectionSaved();
 
-      if (speciesId != null) {
-        await _addToUserSpecies(user.id, speciesId);
-      }
-
       return detection;
     } catch (e) {
       throw Exception('Error al guardar detección: ${e.toString()}');
@@ -58,37 +54,6 @@ class DetectionService {
       return filePath;
     } catch (e) {
       throw Exception('Error al subir imagen: ${e.toString()}');
-    }
-  }
-
-  Future<void> _addToUserSpecies(String userId, int speciesId) async {
-    try {
-      final existing = await _supabaseService.client
-          .from('user_species')
-          .select('total_detections')
-          .eq('user_id', userId)
-          .eq('species_id', speciesId)
-          .maybeSingle();
-
-      if (existing != null) {
-        await _supabaseService.client
-            .from('user_species')
-            .update({
-              'total_detections': (existing['total_detections'] as int) + 1,
-            })
-            .eq('user_id', userId)
-            .eq('species_id', speciesId);
-      } else {
-        await _supabaseService.client.from('user_species').insert({
-          'user_id': userId,
-          'species_id': speciesId,
-          'total_detections': 1,
-        });
-      }
-    } catch (e) {
-      throw Exception(
-        'Error al actualizar progreso de especie: ${e.toString()}',
-      );
     }
   }
 
@@ -120,7 +85,7 @@ class DetectionService {
   Future<Map<String, int>> getSpeciesStatistics(String userId) async {
     try {
       final response = await _supabaseService.client
-          .from('user_species')
+          .from('user_species_view')
           .select('species_id, total_detections')
           .eq('user_id', userId);
 

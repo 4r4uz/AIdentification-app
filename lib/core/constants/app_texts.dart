@@ -62,4 +62,9 @@ class AppTexts {
 
   // Camera
   static const String cameraTitle = 'Cámara';
+
+  // Home - Sigue explorando
+  static const String exploreSectionTitle = 'Sigue explorando';
+  static const String exploreSectionSeeAll = 'Ver todos';
+  static const String exploreSectionLocked = 'Bloqueado';
 }

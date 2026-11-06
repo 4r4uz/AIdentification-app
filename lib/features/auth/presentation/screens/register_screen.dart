@@ -116,11 +116,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       'Crea tu cuenta',
                       style: Theme.of(context).textTheme.headlineSmall
                           ?.copyWith(fontWeight: FontWeight.w800),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Únete a la comunidad de AnimalPedia.',
-                      style: AppTheme.bodyStyle(context),
+                          textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 26),
                     Container(

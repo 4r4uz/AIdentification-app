@@ -152,15 +152,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   void _openLogin() {
-    Navigator.of(
-      context,
-    ).push(MaterialPageRoute<void>(builder: (_) => const LoginScreen()));
+    Navigator.of(context)
+        .push(MaterialPageRoute<void>(builder: (_) => const LoginScreen()));
   }
 
   void _openRegister() {
-    Navigator.of(
-      context,
-    ).push(MaterialPageRoute<void>(builder: (_) => const RegisterScreen()));
+    Navigator.of(context)
+        .push(MaterialPageRoute<void>(builder: (_) => const RegisterScreen()));
   }
 
   Future<void> _pickAndUploadImage() async {
@@ -233,22 +231,27 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Widget _buildAuthenticatedProfile(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
-      children: [
-        if (_isLoading)
-          const _ProfileSkeleton()
-        else if (_loadError != null && _currentUser == null)
-          EmptyStateWidget(
-            icon: Icons.cloud_off_outlined,
-            title: 'No se pudo cargar el perfil',
-            message: _loadError,
-            buttonText: 'Reintentar',
-            onButtonPressed: _loadUserData,
-          )
-        else
-          _buildProfileContent(context),
-      ],
+    return RefreshIndicator(
+      onRefresh: _loadUserData,
+      color: context.palette.primary,
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
+        children: [
+          if (_isLoading)
+            const _ProfileSkeleton()
+          else if (_loadError != null && _currentUser == null)
+            EmptyStateWidget(
+              icon: Icons.cloud_off_outlined,
+              title: 'No se pudo cargar el perfil',
+              message: _loadError,
+              buttonText: 'Reintentar',
+              onButtonPressed: _loadUserData,
+            )
+          else
+            _buildProfileContent(context),
+        ],
+      ),
     );
   }
 
@@ -281,15 +284,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 onTap: _pickAndUploadImage,
                 isUploading: _isUploadingImage,
               ),
-              const SizedBox(height: 12),
-              Text(
-                'Toca la foto para cambiarla',
-                style: TextStyle(
-                  color: palette.textSecondary,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
               const SizedBox(height: 18),
               Text(
                 username,
@@ -300,11 +294,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   fontWeight: FontWeight.w800,
                   letterSpacing: -.4,
                 ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'Tu espacio de exploración',
-                style: AppTheme.bodyStyle(context),
               ),
             ],
           ),
@@ -350,31 +339,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ),
                     ),
                   ],
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 14),
-        Container(
-          padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(
-            color: palette.surfaceMuted,
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(Icons.tips_and_updates_outlined, color: palette.primary),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'Cada identificación guardada amplía tu registro personal de encuentros.',
-                  style: TextStyle(
-                    color: palette.textPrimary,
-                    fontSize: 13,
-                    height: 1.45,
-                  ),
                 ),
               ),
             ],
@@ -442,28 +406,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
         ),
         const SizedBox(height: 18),
-        Container(
-          padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(
-            color: palette.surfaceMuted,
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Row(
-            children: [
-              Icon(Icons.explore_outlined, color: palette.primary),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'Tu próxima aventura puede empezar desde la cámara.',
-                  style: TextStyle(
-                    color: palette.textPrimary,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
       ],
     );
   }

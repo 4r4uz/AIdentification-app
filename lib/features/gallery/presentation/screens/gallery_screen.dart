@@ -227,14 +227,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
       children: [
         Scaffold(
           appBar: AppBar(
-            title: const Text('Galería de especies'),
-            actions: [
-              IconButton(
-                onPressed: _loadSpecies,
-                tooltip: 'Actualizar galería',
-                icon: const Icon(Icons.refresh_rounded),
-              ),
-            ],
+            title: const Text('Colección de especies'),
           ),
           body: RefreshIndicator(
             onRefresh: _loadSpecies,

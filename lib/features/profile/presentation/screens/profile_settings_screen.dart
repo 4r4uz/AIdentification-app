@@ -200,38 +200,12 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
             title: 'Acerca de',
             child: Row(
               children: [
-                Container(
+                SizedBox(
                   width: 46,
                   height: 46,
-                  decoration: BoxDecoration(
-                    color: palette.primarySoft,
-                    borderRadius: BorderRadius.circular(15),
-                  ),
-                  child: Icon(
-                    Icons.pets_rounded,
-                    color: palette.primary,
-                  ),
+                  child: Text("info")
                 ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'AnimalPedia',
-                        style: TextStyle(
-                          color: palette.textPrimary,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        'Explora y aprende sobre la vida silvestre.',
-                        style: AppTheme.bodyStyle(context),
-                      ),
-                    ],
-                  ),
-                ),
+                
               ],
             ),
           ),

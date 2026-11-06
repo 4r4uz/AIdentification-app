@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '/features/auth/presentation/screens/register_screen.dart';
 import '/core/theme/app_theme.dart';
 import '/core/theme/colors.dart';
 import '/features/auth/data/services/auth_service.dart';
@@ -139,11 +138,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       'AnimalPedia',
                       style: Theme.of(context).textTheme.headlineMedium
                           ?.copyWith(fontWeight: FontWeight.w800),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Descubre el mundo animal, una especie a la vez.',
-                      style: AppTheme.bodyStyle(context),
+                          textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 32),
                     Container(
@@ -156,6 +151,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             'Bienvenido de nuevo',
                             style: Theme.of(context).textTheme.titleLarge
                                 ?.copyWith(fontWeight: FontWeight.w700),
+                                textAlign: TextAlign.center,
                           ),
                           const SizedBox(height: 6),
                           Text(
@@ -214,28 +210,6 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                         ],
                       ),
-                    ),
-                    const SizedBox(height: 22),
-                    Wrap(
-                      alignment: WrapAlignment.center,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      children: [
-                        Text(
-                          '¿Todavía no tienes cuenta? ',
-                          style: AppTheme.bodyStyle(context),
-                        ),
-                        TextButton(
-                          onPressed: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => const RegisterScreen(),
-                              ),
-                            );
-                          },
-                          child: const Text('Crear cuenta'),
-                        ),
-                      ],
                     ),
                   ],
                 ),

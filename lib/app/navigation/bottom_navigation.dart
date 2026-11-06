@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
 import '/features/auth/data/services/auth_service.dart';
 import '/features/home/presentation/screens/home_screen.dart';
 import '/features/camera/presentation/screens/camera_screen.dart';
@@ -34,8 +35,7 @@ class _BottomNavigationState extends State<BottomNavigation> {
   static const List<_NavItemData> _navItems = [
     _NavItemData(icon: Icons.home, label: 'Inicio'),
     _NavItemData(icon: Icons.camera_alt, label: 'Cámara'),
-    _NavItemData(icon: Icons.collections, label: 'Galería'),
-    _NavItemData(icon: Icons.person, label: 'Perfil'),
+    _NavItemData(icon: Icons.collections, label: 'Colección'),
   ];
 
   @override
@@ -56,17 +56,21 @@ class _BottomNavigationState extends State<BottomNavigation> {
   }
 
   List<Widget> get _screens => [
-    HomeScreen(onNavigate: _onItemTapped),
+    HomeScreen(onNavigate: _onItemTapped, onProfileTap: () => _openProfile()),
     _hasVisitedCamera ? const CameraScreen() : const SizedBox.shrink(),
     GalleryScreen(
       isActive: _currentIndex == 2 && _isAuthenticated,
       isAuthenticated: _isAuthenticated,
     ),
-    ProfileScreen(
-      isActive: _currentIndex == 3,
-      isAuthenticated: _isAuthenticated,
-    ),
   ];
+
+  void _openProfile() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ProfileScreen(isAuthenticated: _isAuthenticated),
+      ),
+    );
+  }
 
   void _onItemTapped(int index) {
     if (index != _currentIndex) {

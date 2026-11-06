@@ -6,7 +6,6 @@ class SpeciesModel {
   final String? imageUrl;
   final String rarity;
   final String? habitat;
-  final List<String>? funFacts;
 
   SpeciesModel({
     required this.id,
@@ -16,21 +15,19 @@ class SpeciesModel {
     this.imageUrl,
     required this.rarity,
     this.habitat,
-    this.funFacts,
   });
 
   factory SpeciesModel.fromJson(Map<String, dynamic> json) {
     return SpeciesModel(
-      id: json['id'] as int,
-      nameCommon: json['name_common'] as String,
-      nameScientific: json['name_scientific'] as String?,
+      id: ((json['id'] ?? json['species_id']) as num).toInt(),
+      nameCommon:
+          (json['name_common'] ?? json['species_name']) as String? ??
+          'Especie desconocida',
+      nameScientific: (json['name_scientific'] ?? json['scientific_name']) as String?,
       description: json['description'] as String?,
       imageUrl: json['image_url'] as String?,
-      rarity: json['rarity'] as String,
+      rarity: json['rarity'] as String? ?? 'comun',
       habitat: json['habitat'] as String?,
-      funFacts: json['fun_facts'] != null
-          ? List<String>.from(json['fun_facts'] as List)
-          : null,
     );
   }
 
@@ -43,7 +40,6 @@ class SpeciesModel {
       'image_url': imageUrl,
       'rarity': rarity,
       'habitat': habitat,
-      'fun_facts': funFacts,
     };
   }
 

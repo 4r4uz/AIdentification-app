@@ -1,10 +1,11 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:image/image.dart' as img;
 import '/features/camera/domain/entities/species_prediction.dart';
 import '/core/theme/colors.dart';
 import '/core/theme/app_theme.dart';
 
-class ResultScreen extends StatelessWidget {
+class ResultScreen extends StatefulWidget {
   final Map<String, dynamic> result;
   final String imagePath;
 
@@ -13,6 +14,62 @@ class ResultScreen extends StatelessWidget {
     required this.result,
     required this.imagePath,
   });
+
+  @override
+  State<ResultScreen> createState() => _ResultScreenState();
+}
+
+class _ResultScreenState extends State<ResultScreen> {
+  late final Future<Size> _imageSize;
+
+  @override
+  void initState() {
+    super.initState();
+    _imageSize = _loadImageSize();
+  }
+
+  Future<Size> _loadImageSize() async {
+    final decoded = img.decodeImage(await File(widget.imagePath).readAsBytes());
+    if (decoded == null) {
+      throw Exception('No se pudo cargar la imagen del resultado');
+    }
+    return Size(decoded.width.toDouble(), decoded.height.toDouble());
+  }
+
+  Map<String, double>? get _normalizedBoundingBox {
+    final apiResponse = widget.result['api_response'];
+    if (apiResponse is! Map) return null;
+
+    final detections = apiResponse['detections'];
+    if (detections is! List || detections.isEmpty) return null;
+
+    final detection = detections.first;
+    if (detection is! Map) return null;
+
+    final box = detection['bbox'];
+    if (box is! Map) return null;
+
+    double? value(String key) {
+      final rawValue = box[key];
+      return rawValue is num ? rawValue.toDouble() : null;
+    }
+
+    final x = value('x');
+    final y = value('y');
+    final width = value('width');
+    final height = value('height');
+
+    if (x == null || y == null || width == null || height == null) {
+      return null;
+    }
+
+    return {
+      'x': x.clamp(0.0, 1.0).toDouble(),
+      'y': y.clamp(0.0, 1.0).toDouble(),
+      'width': width.clamp(0.0, 1.0).toDouble(),
+      'height': height.clamp(0.0, 1.0).toDouble(),
+    };
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -50,7 +107,29 @@ class ResultScreen extends StatelessWidget {
         decoration: AppTheme.cardDecoration(context),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(AppTheme.cardRadius),
-          child: Image.file(File(imagePath), fit: BoxFit.cover),
+          child: FutureBuilder<Size>(
+            future: _imageSize,
+            builder: (context, snapshot) {
+              final image = Image.file(
+                File(widget.imagePath),
+                fit: BoxFit.cover,
+              );
+              final boundingBox = _normalizedBoundingBox;
+
+              if (!snapshot.hasData || boundingBox == null) {
+                return image;
+              }
+
+              return CustomPaint(
+                foregroundPainter: _BoundingBoxPainter(
+                  boundingBox: boundingBox,
+                  imageSize: snapshot.data!,
+                  color: context.palette.success,
+                ),
+                child: image,
+              );
+            },
+          ),
         ),
       ),
     );
@@ -67,7 +146,7 @@ class ResultScreen extends StatelessWidget {
           child: Container(
             color: Colors.black.withAlpha(200),
             child: Center(
-              child: Image.file(File(imagePath), fit: BoxFit.contain),
+              child: Image.file(File(widget.imagePath), fit: BoxFit.contain),
             ),
           ),
         ),
@@ -76,7 +155,8 @@ class ResultScreen extends StatelessWidget {
   }
 
   Widget _buildResultCard(BuildContext context) {
-    final hasDetection = result['status'] == 'ok' && result['label'] != null;
+    final hasDetection =
+        widget.result['status'] == 'ok' && widget.result['label'] != null;
 
     return Container(
       padding: AppTheme.cardPadding,
@@ -95,13 +175,14 @@ class ResultScreen extends StatelessWidget {
   }
 
   Widget _buildDetectionInfo(BuildContext context) {
-    final label = result['label']?.toString() ?? 'Desconocido';
-    final raw = (result['confidence'] as num?)?.toDouble() ?? 0.0;
+    final label = widget.result['label']?.toString() ?? 'Desconocido';
+    final raw = (widget.result['confidence'] as num?)?.toDouble() ?? 0.0;
     final confidencePercent = (raw.isFinite ? raw : 0.0)
         .clamp(0.0, 1.0)
         .toDouble();
     final confidenceValue = (confidencePercent * 100).round();
-    final predictionSource = result['prediction_source']?.toString() ?? '';
+    final predictionSource =
+        widget.result['prediction_source']?.toString() ?? '';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -164,7 +245,8 @@ class ResultScreen extends StatelessWidget {
   }
 
   Widget _buildNoDetectionInfo(BuildContext context) {
-    final label = result['label']?.toString() ?? 'No se detectó ningún animal';
+    final label =
+        widget.result['label']?.toString() ?? 'No se detectó ningún animal';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -206,16 +288,20 @@ class ResultScreen extends StatelessWidget {
         children: [
           Text('Detalles', style: AppTheme.headingStyle(context)),
           const SizedBox(height: 16),
-          _buildDetailRow(context, 'Estado', result['status'] ?? 'Desconocido'),
+          _buildDetailRow(
+            context,
+            'Estado',
+            widget.result['status']?.toString() ?? 'Desconocido',
+          ),
           _buildDetailRow(
             context,
             'Categoría',
-            result['category'] ?? 'No disponible',
+            widget.result['category']?.toString() ?? 'No disponible',
           ),
           _buildDetailRow(
             context,
             'Animal detectado',
-            (result['label']?.toString().replaceAll('deteccion: ', '') ??
+            (widget.result['label']?.toString().replaceAll('deteccion: ', '') ??
                 'No disponible'),
           ),
         ],
@@ -225,7 +311,7 @@ class ResultScreen extends StatelessWidget {
 
   Widget _buildClassificationInfoCard(BuildContext context) {
     final prediction = SpeciesPrediction.parse(
-      result['prediction']?.toString() ?? '',
+      widget.result['prediction']?.toString() ?? '',
     );
 
     if (!prediction.hasUsableClassification) return const SizedBox.shrink();
@@ -307,4 +393,50 @@ class ResultScreen extends StatelessWidget {
       ),
     );
   }
+}
+
+class _BoundingBoxPainter extends CustomPainter {
+  final Map<String, double> boundingBox;
+  final Size imageSize;
+  final Color color;
+
+  const _BoundingBoxPainter({
+    required this.boundingBox,
+    required this.imageSize,
+    required this.color,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final imageScale = size.width / imageSize.width;
+    final heightScale = size.height / imageSize.height;
+    final scale = imageScale > heightScale ? imageScale : heightScale;
+    final renderedSize = Size(
+      imageSize.width * scale,
+      imageSize.height * scale,
+    );
+    final offset = Offset(
+      (size.width - renderedSize.width) / 2,
+      (size.height - renderedSize.height) / 2,
+    );
+
+    final rect = Rect.fromLTWH(
+      offset.dx + boundingBox['x']! * renderedSize.width,
+      offset.dy + boundingBox['y']! * renderedSize.height,
+      boundingBox['width']! * renderedSize.width,
+      boundingBox['height']! * renderedSize.height,
+    );
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3;
+
+    canvas.drawRect(rect, paint);
+  }
+
+  @override
+  bool shouldRepaint(_BoundingBoxPainter oldDelegate) =>
+      oldDelegate.boundingBox != boundingBox ||
+      oldDelegate.imageSize != imageSize ||
+      oldDelegate.color != color;
 }

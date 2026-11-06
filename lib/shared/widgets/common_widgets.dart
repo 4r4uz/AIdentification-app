@@ -219,6 +219,8 @@ class ProfileAvatar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final palette = context.palette;
+    final imageCacheSize = (112 * MediaQuery.devicePixelRatioOf(context))
+        .round();
     return Semantics(
       button: true,
       enabled: !isUploading && onTap != null,
@@ -244,12 +246,19 @@ class ProfileAvatar extends StatelessWidget {
               ),
               child: ClipOval(
                 child: localImageFile != null
-                    ? Image.file(localImageFile!, fit: BoxFit.cover)
+                    ? Image.file(
+                        localImageFile!,
+                        fit: BoxFit.cover,
+                        cacheWidth: imageCacheSize,
+                        cacheHeight: imageCacheSize,
+                      )
                     : imageUrl != null && imageUrl!.isNotEmpty
                     ? Image.network(
                         imageUrl!,
                         key: ValueKey(imageUrl),
                         fit: BoxFit.cover,
+                        cacheWidth: imageCacheSize,
+                        cacheHeight: imageCacheSize,
                         loadingBuilder: (context, child, progress) {
                           if (progress == null) return child;
                           return const Center(

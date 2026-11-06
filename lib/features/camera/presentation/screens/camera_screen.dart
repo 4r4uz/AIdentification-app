@@ -6,11 +6,11 @@ import 'package:geolocator/geolocator.dart';
 import 'package:image/image.dart' as img;
 
 import '/features/camera/presentation/widgets/camera_widget.dart';
-import '/features/camera/domain/entities/species_prediction.dart';
 import '/features/auth/data/services/auth_service.dart';
 import '/features/camera/data/services/detection_service.dart';
 import '/features/camera/data/services/local_classifier_service.dart';
 import '/features/camera/data/services/mega_detector_service.dart';
+import '/features/camera/data/services/animal_identification_service.dart';
 import '/features/gallery/data/services/species_service.dart';
 import '/core/theme/colors.dart';
 import '/features/camera/presentation/screens/result_screen.dart';
@@ -26,21 +26,23 @@ class _CameraScreenState extends State<CameraScreen> {
   final DetectionService _detectionService = DetectionService();
   final AuthService _authService = AuthService();
   final SpeciesService _speciesService = SpeciesService();
-  final LocalClassifierService _localClassifier = LocalClassifierService();
-  final MegaDetectorService _megaDetector = MegaDetectorService();
+  final megaDetectorService = MegaDetectorService();
+  final localClassifierService = LocalClassifierService();
+  late final AnimalIdentificationService animalIdentificationService;
 
   bool _isProcessing = false;
   bool _isModelsReady = false;
   bool _isModelsInitializing = false;
   String? _modelError;
+  Future<void>? _aiInitialization;
 
   @override
   void initState() {
     super.initState();
-    _initializeModels();
+    _aiInitialization = _initializeAI();
   }
 
-  Future<void> _initializeModels() async {
+  Future<void> _initializeAI() async {
     if (_isModelsInitializing) return;
     _isModelsInitializing = true;
     if (mounted) {
@@ -51,11 +53,16 @@ class _CameraScreenState extends State<CameraScreen> {
     }
 
     try {
-      await Future.wait([
-        _megaDetector.initialize(),
-        _localClassifier.initialize(),
-      ]);
-      if (mounted) setState(() => _isModelsReady = true);
+      animalIdentificationService = AnimalIdentificationService(
+        megaDetectorService: megaDetectorService,
+        localClassifierService: localClassifierService,
+      );
+      await animalIdentificationService.initialize();
+      if (mounted) {
+        setState(
+          () => _isModelsReady = animalIdentificationService.isModelLoaded,
+        );
+      }
     } catch (error) {
       debugPrint('Error inicializando los modelos locales: $error');
       if (mounted) setState(() => _modelError = error.toString());
@@ -66,14 +73,13 @@ class _CameraScreenState extends State<CameraScreen> {
 
   @override
   void dispose() {
-    unawaited(_localClassifier.dispose());
-    unawaited(_megaDetector.dispose());
+    unawaited(_disposeAI());
     super.dispose();
   }
 
-  String? _extractCommonNameFromPrediction(String prediction) {
-    final parsed = SpeciesPrediction.parse(prediction);
-    return parsed.commonName.isEmpty ? null : parsed.commonName;
+  Future<void> _disposeAI() async {
+    await _aiInitialization;
+    await animalIdentificationService.dispose();
   }
 
   Future<void> _onImageCaptured(File imageFile) async {
@@ -94,85 +100,7 @@ class _CameraScreenState extends State<CameraScreen> {
         throw Exception('No se pudo decodificar la imagen capturada');
       }
       final image = img.bakeOrientation(decodedImage);
-
-      final detection = await _megaDetector.detectAnimal(image);
-      Map<String, dynamic> result;
-
-      if (detection == null) {
-        result = {
-          'status': 'no_detection',
-          'label': 'No se detectaron animales',
-          'confidence': 0.0,
-          'prediction': '',
-          'prediction_source': '',
-          'bounding_box': null,
-          'category': '',
-          'api_response': {'detections': <dynamic>[]},
-        };
-      } else {
-        final left = detection.left.floor().clamp(0, image.width - 1).toInt();
-        final top = detection.top.floor().clamp(0, image.height - 1).toInt();
-        final width = (detection.right - detection.left)
-            .truncate()
-            .clamp(1, image.width - left)
-            .toInt();
-        final height = (detection.bottom - detection.top)
-            .truncate()
-            .clamp(1, image.height - top)
-            .toInt();
-        final animalCrop = img.copyCrop(
-          image,
-          x: left,
-          y: top,
-          width: width,
-          height: height,
-        );
-
-        final classification = await _localClassifier.analyzeImage(
-          animalCrop,
-          detectionConfidence: detection.confidence,
-        );
-        final prediction = classification['prediction']?.toString() ?? '';
-        final label =
-            classification['label']?.toString() ??
-            _extractCommonNameFromPrediction(prediction) ??
-            'Animal detectado';
-        final confidence =
-            (classification['confidence'] as num?)?.toDouble() ?? 0.0;
-        final predictionSource =
-            classification['prediction_source']?.toString() ?? 'classifier';
-
-        result = {
-          'status': classification['status']?.toString() ?? 'ok',
-          'label': label,
-          'confidence': confidence,
-          'prediction': prediction,
-          'prediction_source': predictionSource,
-          'bounding_box': {
-            'x': detection.left / image.width,
-            'y': detection.top / image.height,
-            'width': (detection.right - detection.left) / image.width,
-            'height': (detection.bottom - detection.top) / image.height,
-          },
-          'category': 'animal',
-          'detection_confidence': detection.confidence,
-          'api_response': {
-            'detections': [
-              {
-                'category': 'animal',
-                'confidence': detection.confidence,
-                'bbox': {
-                  'x': detection.left / image.width,
-                  'y': detection.top / image.height,
-                  'width': (detection.right - detection.left) / image.width,
-                  'height': (detection.bottom - detection.top) / image.height,
-                },
-              },
-            ],
-            'prediction': prediction,
-          },
-        };
-      }
+      final result = await animalIdentificationService.identifyAnimal(image);
 
       if (!mounted) return;
 
