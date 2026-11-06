@@ -145,21 +145,11 @@ class _GalleryScreenState extends State<GalleryScreen> {
               const SizedBox(height: 18),
               Row(
                 children: [
-                  Container(
+                  _SpeciesImage(
+                    species: species,
                     width: 52,
                     height: 52,
-                    decoration: BoxDecoration(
-                      color: _isSpeciesUnlocked(species)
-                          ? context.palette.primarySoft
-                          : Colors.black,
-                      borderRadius: BorderRadius.circular(18),
-                    ),
-                    child: Icon(
-                      _isSpeciesUnlocked(species)
-                          ? Icons.check_rounded
-                          : Icons.help_rounded,
-                      color: Colors.white,
-                    ),
+                    borderRadius: 18,
                   ),
                   const SizedBox(width: 14),
                   Expanded(
@@ -490,21 +480,11 @@ class _SpeciesCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Align(
-                alignment: Alignment.topRight,
-                child: Container(
-                  width: 34,
-                  height: 34,
-                  decoration: BoxDecoration(
-                    color: isUnlocked ? palette.success : Colors.black,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    isUnlocked ? Icons.check_rounded : Icons.help_rounded,
-                    color: Colors.white,
-                    size: 18,
-                  ),
-                ),
+              _SpeciesImage(
+                species: species,
+                width: double.infinity,
+                height: 120,
+                borderRadius: 16,
               ),
               const Spacer(),
               Text(
@@ -533,6 +513,66 @@ class _SpeciesCard extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _SpeciesImage extends StatelessWidget {
+  final SpeciesModel species;
+  final double width;
+  final double height;
+  final double borderRadius;
+
+  const _SpeciesImage({
+    required this.species,
+    required this.width,
+    required this.height,
+    required this.borderRadius,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final imageUrl = species.imageUrl?.trim();
+    final fallbackColor = context.palette.primarySoft;
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(borderRadius),
+      child: Container(
+        width: width,
+        height: height,
+        color: fallbackColor,
+        child: imageUrl == null || imageUrl.isEmpty
+            ? Icon(
+                Icons.pets_rounded,
+                size: height >= 80 ? 42 : 24,
+                color: context.palette.primary,
+              )
+            : Image.network(
+                imageUrl,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) => Icon(
+                  Icons.pets_rounded,
+                  size: height >= 80 ? 42 : 24,
+                  color: context.palette.primary,
+                ),
+                loadingBuilder: (context, child, loadingProgress) {
+                  if (loadingProgress == null) return child;
+                  return Center(
+                    child: SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        value: loadingProgress.expectedTotalBytes == null
+                            ? null
+                            : loadingProgress.cumulativeBytesLoaded /
+                                loadingProgress.expectedTotalBytes!,
+                      ),
+                    ),
+                  );
+                },
+              ),
       ),
     );
   }

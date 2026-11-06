@@ -1,33 +1,58 @@
-# aidentification_app
+# AnimalPedia
 
-A new Flutter project.
+Aplicación móvil para identificar animales a partir de fotografías y
+construir una colección personal de especies descubiertas.
 
-## GitHub Actions
+## Funcionalidades (WIP)
 
-El workflow [`flutter-build.yml`](.github/workflows/flutter-build.yml) ejecuta:
+- Captura de fotografías desde la cámara del dispositivo.
+- Detección del animal mediante un modelo local de IA.
+- Identificación de especies y clasificación taxonómica.
+- Galería de especies con imágenes, información y nivel de rareza.
+- Datos curiosos sobre animales en un carrusel dinámico.
+- Registro de detecciones, estadísticas y progreso del usuario.
+- Trivia sobre el reino animal.
+- Perfil de usuario con fotografía y autenticación.
 
-- `flutter analyze` y `flutter test`.
-- Builds Android en APK separados por arquitectura.
-- Build iOS sin firma y lo publica como artefacto `.app.zip`.
+## Tecnología
 
-Para que la aplicación pueda conectarse a Supabase en el artefacto, configura
-los secretos `SUPABASE_URL` y `SUPABASE_PUBLISHABLE_KEY` en el repositorio.
+- Flutter y Dart.
+- Supabase para autenticación, datos y almacenamiento.
+- Modelos ONNX ejecutados localmente para la identificación.
 
-La firma de Android requiere agregar un keystore y sus secretos de GitHub.
-La firma y distribución de iOS requiere certificados, provisioning profiles y
-un equipo de Apple configurados en GitHub Actions; el workflow actual genera
-una aplicación iOS sin firma para validación y empaquetado.
+## Requisitos
 
-## Getting Started
+- Flutter estable.
+- Dart compatible con la versión indicada en [`pubspec.yaml`](pubspec.yaml).
+- Android Studio y Android SDK para Android.
+- Dispositivo con cámara, memoria suficiente para los modelos de IA y conexión a internet para las funciones de Supabase.
 
-This project is a starting point for a Flutter application.
+## Configuración
 
-A few resources to get you started if this is your first Flutter project:
+Crea un archivo `.env` en la raíz del proyecto:
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+```env
+SUPABASE_URL=tu_url_de_supabase
+SUPABASE_PUBLISHABLE_KEY=tu_clave_publishable
+```
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+Los modelos de IA deben estar disponibles en `assets/models/`:
+
+- `megadetector_v6_fp16.onnx`
+- `speciesnet_fp16.onnx`
+- `labels.txt`
+
+## Ejecución local
+
+```bash
+flutter pub get
+flutter run
+```
+
+## Compilación
+
+Android:
+
+```bash
+flutter build apk --release
+```

@@ -28,7 +28,7 @@ class _CameraScreenState extends State<CameraScreen> {
   final SpeciesService _speciesService = SpeciesService();
   final megaDetectorService = MegaDetectorService();
   final localClassifierService = LocalClassifierService();
-  late final AnimalIdentificationService animalIdentificationService;
+  AnimalIdentificationService? _animalIdentificationService;
 
   bool _isProcessing = false;
   bool _isModelsReady = false;
@@ -53,10 +53,11 @@ class _CameraScreenState extends State<CameraScreen> {
     }
 
     try {
-      animalIdentificationService = AnimalIdentificationService(
+      final animalIdentificationService = AnimalIdentificationService(
         megaDetectorService: megaDetectorService,
         localClassifierService: localClassifierService,
       );
+      _animalIdentificationService = animalIdentificationService;
       await animalIdentificationService.initialize();
       if (mounted) {
         setState(
@@ -79,7 +80,7 @@ class _CameraScreenState extends State<CameraScreen> {
 
   Future<void> _disposeAI() async {
     await _aiInitialization;
-    await animalIdentificationService.dispose();
+    await _animalIdentificationService?.dispose();
   }
 
   Future<void> _onImageCaptured(File imageFile) async {
@@ -100,6 +101,11 @@ class _CameraScreenState extends State<CameraScreen> {
         throw Exception('No se pudo decodificar la imagen capturada');
       }
       final image = img.bakeOrientation(decodedImage);
+      final animalIdentificationService = _animalIdentificationService;
+      if (animalIdentificationService == null) {
+        throw Exception('El servicio de identificación no está disponible');
+      }
+
       final result = await animalIdentificationService.identifyAnimal(image);
 
       if (!mounted) return;

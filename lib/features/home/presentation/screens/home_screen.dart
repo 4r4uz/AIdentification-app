@@ -232,6 +232,7 @@ class _FactsCarouselState extends State<_FactsCarousel> {
   final List<int> _recentFactIds = [];
   final Map<int, SpeciesFactModel> _factsByPage = {};
   String? _factsError;
+  bool _isLoadingFacts = true;
 
   @override
   void initState() {
@@ -256,12 +257,16 @@ class _FactsCarouselState extends State<_FactsCarousel> {
         setState(() {
           _facts = facts;
           _factsError = null;
+          _isLoadingFacts = false;
         });
       }
     } catch (error) {
       debugPrint('Error cargando datos curiosos: $error');
       if (mounted) {
-        setState(() => _factsError = 'No se pudieron cargar los datos curiosos.');
+        setState(() {
+          _factsError = 'No se pudieron cargar los datos curiosos.';
+          _isLoadingFacts = false;
+        });
       }
     }
   }
@@ -303,6 +308,7 @@ class _FactsCarouselState extends State<_FactsCarousel> {
       _factsByPage.clear();
       _facts = [];
       _factsError = null;
+      _isLoadingFacts = true;
       _loadFacts();
     }
   }
@@ -310,6 +316,13 @@ class _FactsCarouselState extends State<_FactsCarousel> {
   @override
   Widget build(BuildContext context) {
     final palette = context.palette;
+
+    if (_isLoadingFacts) {
+      return const SizedBox(
+        height: 142,
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
 
     if (_factsError != null) {
       return SizedBox(
@@ -321,7 +334,7 @@ class _FactsCarouselState extends State<_FactsCarousel> {
     if (_facts.isEmpty) {
       return const SizedBox(
         height: 142,
-        child: Center(child: CircularProgressIndicator()),
+        child: Center(child: Text('Aún no hay datos curiosos disponibles.')),
       );
     }
 
@@ -351,13 +364,41 @@ class _FactsCarouselState extends State<_FactsCarousel> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Text(
-                              fact.speciesName ?? 'Dato curioso',
-                              style: Theme.of(context).textTheme.titleLarge
-                                  ?.copyWith(
-                                    color: palette.cameraForeground,
-                                    fontWeight: FontWeight.w800,
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.baseline,
+                              textBaseline: TextBaseline.alphabetic,
+                              children: [
+                                Flexible(
+                                  child: Text(
+                                    fact.speciesName ?? 'Dato curioso',
+                                    overflow: TextOverflow.ellipsis,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleLarge
+                                        ?.copyWith(
+                                          color: palette.cameraForeground,
+                                          fontWeight: FontWeight.w800,
+                                        ),
                                   ),
+                                ),
+                                if (fact.scientificName != null &&
+                                    fact.scientificName!.trim().isNotEmpty) ...[
+                                  const SizedBox(width: 8),
+                                  Flexible(
+                                    child: Text(
+                                      fact.scientificName!,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: AppTheme.bodyStyle(context)
+                                          .copyWith(
+                                            color: palette.cameraForeground
+                                                .withValues(alpha: 0.62),
+                                            fontSize: 12,
+                                            fontStyle: FontStyle.italic,
+                                          ),
+                                    ),
+                                  ),
+                                ],
+                              ],
                             ),
                             const SizedBox(height: 6),
                             Text(

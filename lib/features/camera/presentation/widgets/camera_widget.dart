@@ -75,14 +75,20 @@ class _CameraWidgetState extends State<CameraWidget>
 
       final status = await Permission.camera.request();
       if (!status.isGranted) {
-        setState(() {
-          _hasError = true;
-          _errorMessage = 'Permiso de cámara requerido';
-        });
+        if (mounted) {
+          setState(() {
+            _hasError = true;
+            _errorMessage = 'Permiso de cámara requerido';
+          });
+        }
         return;
       }
 
       final cameras = await availableCameras();
+      if (cameras.isEmpty) {
+        throw Exception('No se encontró ninguna cámara disponible');
+      }
+
       final camera = cameras.firstWhere(
         (c) => c.lensDirection == CameraLensDirection.back,
         orElse: () => cameras.first,
@@ -98,11 +104,14 @@ class _CameraWidgetState extends State<CameraWidget>
 
       await controller.initialize();
 
+      if (!mounted) {
+        await controller.dispose();
+        return;
+      }
+
       _minZoom = await controller.getMinZoomLevel();
       _maxZoom = await controller.getMaxZoomLevel();
       _currentZoom = _minZoom;
-
-      if (!mounted) return;
 
       setState(() {
         _isReady = true;
@@ -113,6 +122,7 @@ class _CameraWidgetState extends State<CameraWidget>
       setState(() {
         _hasError = true;
         _errorMessage = e.toString();
+        _isReady = false;
       });
     } finally {
       _isInitializing = false;
@@ -386,6 +396,29 @@ class _CameraWidgetState extends State<CameraWidget>
   Widget _buildLoading() => const Center(child: CircularProgressIndicator());
 
   Widget _buildError() => Center(
-    child: Text(_errorMessage, style: const TextStyle(color: Colors.white)),
+    child: Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(
+            Icons.camera_alt_outlined,
+            color: Colors.white,
+            size: 48,
+          ),
+          const SizedBox(height: 16),
+          Text(
+            _errorMessage,
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Colors.white),
+          ),
+          const SizedBox(height: 16),
+          FilledButton(
+            onPressed: _initCamera,
+            child: const Text('Reintentar'),
+          ),
+        ],
+      ),
+    ),
   );
 }

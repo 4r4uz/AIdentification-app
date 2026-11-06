@@ -40,13 +40,11 @@ class _LoginScreenState extends State<LoginScreen> {
       if (user != null && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Inicio de sesión exitoso'),
+            content: const Text('Inicio de sesión exitoso'),
             backgroundColor: context.palette.success,
           ),
         );
-        if (Navigator.of(context).canPop()) {
-          Navigator.of(context).pop();
-        }
+        Navigator.of(context).pop(true);
       }
     } catch (e) {
       if (mounted) {

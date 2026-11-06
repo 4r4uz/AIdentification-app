@@ -24,6 +24,8 @@
     <string>????</string>
     <key>CFBundleVersion</key>
     <string>$(FLUTTER_BUILD_NUMBER)</string>
+    <key>NSCameraUsageDescription</key>
+    <string>AnimalPedia necesita acceso a la cámara para identificar animales.</string>
     <key>LSRequiresIPhoneOS</key>
     <true/>
     <key>UIApplicationSceneManifest</key>

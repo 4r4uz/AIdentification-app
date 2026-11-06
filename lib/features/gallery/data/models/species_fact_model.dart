@@ -5,6 +5,7 @@ class SpeciesFactModel {
   final int sortOrder;
   final String? sourceUrl;
   final String? speciesName;
+  final String? scientificName;
 
   const SpeciesFactModel({
     required this.id,
@@ -13,6 +14,7 @@ class SpeciesFactModel {
     required this.sortOrder,
     this.sourceUrl,
     this.speciesName,
+    this.scientificName,
   });
 
   factory SpeciesFactModel.fromJson(Map<String, dynamic> json) {
@@ -30,6 +32,9 @@ class SpeciesFactModel {
       speciesName:
           speciesData['name_common'] as String? ??
           json['species_name'] as String?,
+      scientificName:
+          speciesData['name_scientific'] as String? ??
+          json['scientific_name'] as String?,
     );
   }
 }

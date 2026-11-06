@@ -37,9 +37,13 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
   }
 
   Future<void> _openAuthScreen(Widget screen) async {
-    await Navigator.of(
-      context,
-    ).push(MaterialPageRoute<void>(builder: (_) => screen));
+    final result = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(builder: (_) => screen),
+    );
+
+    if (result == true && mounted) {
+      Navigator.of(context).pop(true);
+    }
   }
 
   Future<void> _signOut() async {

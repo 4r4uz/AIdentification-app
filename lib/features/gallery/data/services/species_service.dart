@@ -76,16 +76,62 @@ class SpeciesService {
   }
 
   Future<List<SpeciesFactModel>> getAllSpeciesFacts() async {
-    return _supabaseService.client.safeListFrom(
-      _supabaseService.client
+    try {
+      final response = await _supabaseService.client
           .from('species_facts')
-          .select(
-            'id, species_id, fact, sort_order, source_url, species(name_common)',
+          .select('id, species_id, fact, sort_order, source_url')
+          .order('sort_order')
+          .order('id')
+          .timeout(const Duration(seconds: 10));
+
+      final facts = (response as List)
+          .map(
+            (item) => SpeciesFactModel.fromJson(
+              Map<String, dynamic>.from(item as Map),
+            ),
           )
-          .order('id'),
-      fromJson: SpeciesFactModel.fromJson,
-      errorMessage: 'Error al obtener datos curiosos',
-    );
+          .toList();
+
+      if (facts.isEmpty) return [];
+
+      final speciesIds = facts.map((fact) => fact.speciesId).toSet().toList();
+      final speciesResponse = await _supabaseService.client
+          .from('species')
+          .select('id, name_common, name_scientific')
+          .inFilter('id', speciesIds)
+          .timeout(const Duration(seconds: 10));
+
+      final speciesNames = <int, String>{};
+      final speciesScientificNames = <int, String?>{};
+      for (final item in speciesResponse as List) {
+        final row = Map<String, dynamic>.from(item as Map);
+        final id = (row['id'] as num).toInt();
+        final name = row['name_common'];
+        final scientificName = row['name_scientific'];
+        if (name is String && name.trim().isNotEmpty) {
+          speciesNames[id] = name;
+        }
+        speciesScientificNames[id] = scientificName is String
+            ? scientificName
+            : null;
+      }
+
+      return facts
+          .map(
+            (fact) => SpeciesFactModel(
+              id: fact.id,
+              speciesId: fact.speciesId,
+              fact: fact.fact,
+              sortOrder: fact.sortOrder,
+              sourceUrl: fact.sourceUrl,
+              speciesName: speciesNames[fact.speciesId],
+              scientificName: speciesScientificNames[fact.speciesId],
+            ),
+          )
+          .toList();
+    } catch (e) {
+      throw Exception('Error al obtener datos curiosos: ${e.toString()}');
+    }
   }
 
   Future<void> registerDetectedSpecies({
