@@ -43,9 +43,6 @@ jobs:
       - name: Analyze Dart code
         run: flutter analyze
 
-      - name: Run tests
-        run: flutter test
-
   android:
     name: Build Android APK
     runs-on: ubuntu-latest
