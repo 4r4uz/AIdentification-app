@@ -72,7 +72,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
     setState(() => _isSigningOut = true);
     try {
       await _authService.signOut();
-      if (mounted) Navigator.of(context).pop();
+      if (mounted) Navigator.of(context).pop(true);
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -172,29 +172,32 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                       ),
                       const SizedBox(height: 14),
                       Divider(color: palette.border),
-                      ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: Icon(
-                          Icons.logout_rounded,
-                          color: palette.error,
-                        ),
-                        title: Text(
-                          'Cerrar sesión',
-                          style: TextStyle(
+                      Material(
+                        color: Colors.transparent,
+                        child: ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: Icon(
+                            Icons.logout_rounded,
                             color: palette.error,
-                            fontWeight: FontWeight.w600,
                           ),
+                          title: Text(
+                            'Cerrar sesión',
+                            style: TextStyle(
+                              color: palette.error,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          trailing: _isSigningOut
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.chevron_right_rounded),
+                          onTap: _isSigningOut ? null : _signOut,
                         ),
-                        trailing: _isSigningOut
-                            ? const SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : const Icon(Icons.chevron_right_rounded),
-                        onTap: _isSigningOut ? null : _signOut,
                       ),
                     ],
                   ),

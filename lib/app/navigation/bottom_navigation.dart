@@ -64,12 +64,18 @@ class _BottomNavigationState extends State<BottomNavigation> {
     ),
   ];
 
-  void _openProfile() {
-    Navigator.of(context).push(
-      MaterialPageRoute(
+  Future<void> _openProfile() async {
+    final result = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
         builder: (_) => ProfileScreen(isAuthenticated: _isAuthenticated),
       ),
     );
+
+    if (result == true && mounted) {
+      setState(() {
+        _isAuthenticated = _authService.isAuthenticated;
+      });
+    }
   }
 
   void _onItemTapped(int index) {

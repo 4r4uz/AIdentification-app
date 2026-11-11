@@ -1,6 +1,8 @@
 import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:image/image.dart' as img;
+
 import '/features/camera/domain/entities/species_prediction.dart';
 import '/core/theme/colors.dart';
 import '/core/theme/app_theme.dart';
@@ -86,7 +88,14 @@ class _ResultScreenState extends State<ResultScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildImage(context),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(flex: 6, child: _buildImage(context)),
+                const SizedBox(width: 12),
+                Expanded(flex: 4, child: _buildSpeciesSummary(context)),
+              ],
+            ),
             const SizedBox(height: 24),
             _buildResultCard(context),
             const SizedBox(height: 24),
@@ -95,6 +104,104 @@ class _ResultScreenState extends State<ResultScreen> {
             _buildClassificationInfoCard(context),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildSpeciesSummary(BuildContext context) {
+    final hasDetection =
+        widget.result['status'] == 'ok' && widget.result['label'] != null;
+    final prediction = SpeciesPrediction.parse(
+      widget.result['prediction']?.toString() ?? '',
+    );
+    final commonName = prediction.commonName.trim();
+    final speciesName = prediction.species.trim();
+    final scientificName = [
+      prediction.genus.trim(),
+      speciesName,
+    ].where((part) => part.isNotEmpty).join(' ');
+    final identifiedName = commonName.isNotEmpty
+        ? commonName
+        : speciesName.isNotEmpty
+        ? speciesName
+        : prediction.genus.isNotEmpty
+        ? prediction.genus
+        : prediction.family.isNotEmpty
+        ? prediction.family
+        : widget.result['label']?.toString() ?? 'No identificado';
+    final confidence =
+        ((widget.result['confidence'] as num?)?.toDouble() ?? 0.0)
+            .clamp(0.0, 1.0)
+            .toDouble();
+
+    return Container(
+      height: 250,
+      padding: const EdgeInsets.all(14),
+      decoration: AppTheme.cardDecoration(context),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            hasDetection
+                ? Icons.auto_awesome_rounded
+                : Icons.search_off_rounded,
+            color: hasDetection
+                ? context.palette.success
+                : context.palette.textSecondary,
+            size: 22,
+          ),
+          const Spacer(),
+          Text(
+            hasDetection ? 'IDENTIFICADO' : 'SIN DETECCIÓN',
+            style: TextStyle(
+              color: context.palette.textSecondary,
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.8,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            hasDetection ? identifiedName : 'No se encontró un animal',
+            maxLines: 4,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: context.palette.textPrimary,
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              height: 1.15,
+            ),
+          ),
+          if (hasDetection &&
+              commonName.isNotEmpty &&
+              scientificName.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              scientificName,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: context.palette.textSecondary,
+                fontSize: 12,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+          ],
+          const Spacer(),
+          if (hasDetection) ...[
+            Divider(color: context.palette.surfaceMuted),
+            Text(
+              '${(confidence * 100).round()}% confianza',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: context.palette.success,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }

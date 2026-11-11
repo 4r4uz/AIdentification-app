@@ -1,4 +1,5 @@
 import 'package:image/image.dart' as img;
+import 'package:flutter/foundation.dart';
 
 import 'mega_detector_service.dart';
 import 'local_classifier_service.dart';
@@ -10,19 +11,31 @@ class AnimalIdentificationService {
   AnimalIdentificationService({
     required MegaDetectorService megaDetectorService,
     required LocalClassifierService localClassifierService,
-  // ignore: prefer_initializing_formals
-  })  : _megaDetectorService = megaDetectorService,
-        // ignore: prefer_initializing_formals
-        _localClassifierService = localClassifierService;
+    // ignore: prefer_initializing_formals
+  }) : _megaDetectorService = megaDetectorService,
+       // ignore: prefer_initializing_formals
+       _localClassifierService = localClassifierService;
 
-  bool get isModelLoaded =>
-      _megaDetectorService.isModelLoaded &&
-      _localClassifierService.isModelLoaded;
+  bool get isDetectorLoaded => _megaDetectorService.isModelLoaded;
 
-  /// Inicializa ambos modelos de IA.
-  Future<void> initialize() async {
+  /// Inicializa MegaDetector, que se usa en cada análisis.
+  Future<void> initializeDetector() async {
     await _megaDetectorService.initialize();
-    await _localClassifierService.initialize();
+  }
+
+  Future<void> _initializeClassifier() async {
+    if (_localClassifierService.isModelLoaded) return;
+
+    debugPrint('AnimalIdentification: inicializando clasificador SpeciesNet');
+    try {
+      await _localClassifierService.initialize();
+      debugPrint('AnimalIdentification: clasificador SpeciesNet listo');
+    } catch (error) {
+      debugPrint(
+        'AnimalIdentification: error inicializando SpeciesNet: $error',
+      );
+      rethrow;
+    }
   }
 
   /// Libera los recursos de ambos modelos.
@@ -36,13 +49,9 @@ class AnimalIdentificationService {
   /// 2. Recorta la región detectada.
   /// 3. Clasifica el recorte con SpeciesNet.
   /// 4. Devuelve un resultado unificado.
-  Future<Map<String, dynamic>> identifyAnimal(
-    img.Image image,
-  ) async {
-    if (!isModelLoaded) {
-      throw Exception(
-        'Los modelos de identificación no están inicializados',
-      );
+  Future<Map<String, dynamic>> identifyAnimal(img.Image image) async {
+    if (!isDetectorLoaded) {
+      throw Exception('MegaDetector no está inicializado');
     }
 
     if (image.width <= 0 || image.height <= 0) {
@@ -53,10 +62,16 @@ class AnimalIdentificationService {
     // 1. DETECCIÓN DEL ANIMAL
     // --------------------------------------------------
 
-    final detection =
-        await _megaDetectorService.detectAnimal(image);
+    final MegaDetection? detection;
+    try {
+      detection = await _megaDetectorService.detectAnimal(image);
+    } catch (error) {
+      debugPrint('AnimalIdentification: error ejecutando MegaDetector: $error');
+      rethrow;
+    }
 
     if (detection == null) {
+      debugPrint('AnimalIdentification: MegaDetector no encontró un animal');
       return {
         'status': 'not_detected',
         'label': 'No se detectaron animales',
@@ -75,20 +90,11 @@ class AnimalIdentificationService {
     // 2. VALIDACIÓN Y RECORTE DEL ANIMAL
     // --------------------------------------------------
 
-    final left = detection.left
-        .round()
-        .clamp(0, image.width - 1)
-        .toInt();
+    final left = detection.left.round().clamp(0, image.width - 1).toInt();
 
-    final top = detection.top
-        .round()
-        .clamp(0, image.height - 1)
-        .toInt();
+    final top = detection.top.round().clamp(0, image.height - 1).toInt();
 
-    final right = detection.right
-        .round()
-        .clamp(left + 1, image.width)
-        .toInt();
+    final right = detection.right.round().clamp(left + 1, image.width).toInt();
 
     final bottom = detection.bottom
         .round()
@@ -99,9 +105,7 @@ class AnimalIdentificationService {
     final cropHeight = bottom - top;
 
     if (cropWidth <= 0 || cropHeight <= 0) {
-      throw Exception(
-        'MegaDetector produjo un recorte inválido',
-      );
+      throw Exception('MegaDetector produjo un recorte inválido');
     }
 
     final animalCrop = img.copyCrop(
@@ -112,14 +116,26 @@ class AnimalIdentificationService {
       height: cropHeight,
     );
 
+    await _initializeClassifier();
+
     // --------------------------------------------------
     // 3. CLASIFICACIÓN CON SPECIESNET
     // --------------------------------------------------
 
-    final classification =
-        await _localClassifierService.analyzeImage(
-      animalCrop,
-      detectionConfidence: detection.confidence,
+    final Map<String, dynamic> classification;
+    try {
+      classification = await _localClassifierService.analyzeImage(
+        animalCrop,
+        detectionConfidence: detection.confidence,
+      );
+    } catch (error) {
+      debugPrint('AnimalIdentification: error ejecutando SpeciesNet: $error');
+      rethrow;
+    }
+    debugPrint(
+      'AnimalIdentification: detección=${detection.confidence}, '
+      'resultado=${classification['label']}, '
+      'estado=${classification['status']}',
     );
 
     // --------------------------------------------------

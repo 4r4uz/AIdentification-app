@@ -28,47 +28,63 @@ class _CameraScreenState extends State<CameraScreen> {
   final SpeciesService _speciesService = SpeciesService();
   final megaDetectorService = MegaDetectorService();
   final localClassifierService = LocalClassifierService();
-  AnimalIdentificationService? _animalIdentificationService;
+  late final AnimalIdentificationService _animalIdentificationService =
+      AnimalIdentificationService(
+        megaDetectorService: megaDetectorService,
+        localClassifierService: localClassifierService,
+      );
 
   bool _isProcessing = false;
-  bool _isModelsReady = false;
-  bool _isModelsInitializing = false;
-  String? _modelError;
-  Future<void>? _aiInitialization;
+  bool _isDetectorReady = false;
+  bool _isDetectorInitializing = false;
+  String? _detectorError;
+  Future<void>? _detectorInitialization;
 
-  @override
-  void initState() {
-    super.initState();
-    _aiInitialization = _initializeAI();
+  void _onCameraReady() {
+    debugPrint('CameraScreen: cámara lista; iniciando MegaDetector');
+    unawaited(_initializeDetector());
   }
 
-  Future<void> _initializeAI() async {
-    if (_isModelsInitializing) return;
-    _isModelsInitializing = true;
+  Future<void> _initializeDetector() async {
+    if (_animalIdentificationService.isDetectorLoaded) return;
+    final initialization = _detectorInitialization;
+    if (initialization != null) {
+      await initialization;
+      return;
+    }
+
+    final future = _initializeDetectorInternal();
+    _detectorInitialization = future;
+    try {
+      await future;
+    } finally {
+      if (identical(_detectorInitialization, future)) {
+        _detectorInitialization = null;
+      }
+    }
+  }
+
+  Future<void> _initializeDetectorInternal() async {
+    _isDetectorInitializing = true;
     if (mounted) {
       setState(() {
-        _modelError = null;
-        _isModelsReady = false;
+        _detectorError = null;
+        _isDetectorReady = false;
       });
     }
 
     try {
-      final animalIdentificationService = AnimalIdentificationService(
-        megaDetectorService: megaDetectorService,
-        localClassifierService: localClassifierService,
-      );
-      _animalIdentificationService = animalIdentificationService;
-      await animalIdentificationService.initialize();
+      debugPrint('CameraScreen: inicializando MegaDetector');
+      await _animalIdentificationService.initializeDetector();
+      debugPrint('CameraScreen: MegaDetector listo');
       if (mounted) {
-        setState(
-          () => _isModelsReady = animalIdentificationService.isModelLoaded,
-        );
+        setState(() => _isDetectorReady = true);
       }
     } catch (error) {
-      debugPrint('Error inicializando los modelos locales: $error');
-      if (mounted) setState(() => _modelError = error.toString());
+      debugPrint('CameraScreen: error inicializando MegaDetector: $error');
+      if (mounted) setState(() => _detectorError = error.toString());
     } finally {
-      _isModelsInitializing = false;
+      _isDetectorInitializing = false;
     }
   }
 
@@ -79,15 +95,18 @@ class _CameraScreenState extends State<CameraScreen> {
   }
 
   Future<void> _disposeAI() async {
-    await _aiInitialization;
-    await _animalIdentificationService?.dispose();
+    await _detectorInitialization;
+    await _animalIdentificationService.dispose();
   }
 
   Future<void> _onImageCaptured(File imageFile) async {
     if (_isProcessing) return;
-    if (!_isModelsReady) {
+    if (!_isDetectorReady) {
       _showError(
-        _modelError ?? 'Los modelos locales todavía se están cargando.',
+        _detectorError ??
+            (_isDetectorInitializing
+                ? 'MegaDetector todavía se está cargando.'
+                : 'MegaDetector no está disponible.'),
       );
       return;
     }
@@ -101,55 +120,59 @@ class _CameraScreenState extends State<CameraScreen> {
         throw Exception('No se pudo decodificar la imagen capturada');
       }
       final image = img.bakeOrientation(decodedImage);
-      final animalIdentificationService = _animalIdentificationService;
-      if (animalIdentificationService == null) {
-        throw Exception('El servicio de identificación no está disponible');
-      }
-
-      final result = await animalIdentificationService.identifyAnimal(image);
+      final result = await _animalIdentificationService.identifyAnimal(image);
+      debugPrint(
+        'CameraScreen: resultado IA '
+        'status=${result['status']}, label=${result['label']}, '
+        'prediction=${result['prediction']}',
+      );
 
       if (!mounted) return;
 
       if (result['status'] == 'ok') {
         final prediction = result['prediction']?.toString() ?? '';
         final predictionSource = result['prediction_source']?.toString() ?? '';
-        await _speciesService.registerDetectedSpecies(
+        final species = await _speciesService.resolveDetectedSpecies(
           prediction: prediction,
           predictionSource: predictionSource,
         );
 
-        try {
-          Position? position;
+        if (species == null) {
+          debugPrint(
+            'Detección no válida: no existe coincidencia exacta para '
+            'name_scientific en species.',
+          );
+        } else {
           try {
-            position = await Geolocator.getCurrentPosition(
-              locationSettings: const LocationSettings(
-                accuracy: LocationAccuracy.high,
-              ),
-            ).timeout(const Duration(seconds: 5));
-          } catch (error) {
-            debugPrint('No se pudo obtener ubicación: $error');
-          }
+            Position? position;
+            try {
+              position = await Geolocator.getCurrentPosition(
+                locationSettings: const LocationSettings(
+                  accuracy: LocationAccuracy.high,
+                ),
+              ).timeout(const Duration(seconds: 5));
+            } catch (error) {
+              debugPrint('No se pudo obtener ubicación: $error');
+            }
 
-          final user = _authService.currentUser;
-          if (user != null) {
-            final species = await _speciesService.getSpeciesByName(
-              result['label']?.toString() ?? '',
-            );
-            await _detectionService.saveDetection(
-              imageFile: imageFile,
-              speciesId: species?.id,
-              confidence: (result['confidence'] as num?)?.toDouble(),
-              latitude: position?.latitude,
-              longitude: position?.longitude,
-            );
+            final user = _authService.currentUser;
+            if (user != null) {
+              await _detectionService.saveDetection(
+                imageFile: imageFile,
+                speciesId: species.id,
+                confidence: (result['confidence'] as num?)?.toDouble(),
+                latitude: position?.latitude,
+                longitude: position?.longitude,
+              );
+            }
+          } catch (error) {
+            debugPrint('Error guardando detección: $error');
           }
-        } catch (error) {
-          debugPrint('Error guardando detección: $error');
         }
       }
 
       if (!mounted) return;
-      Navigator.push(
+      await Navigator.push<void>(
         context,
         MaterialPageRoute(
           builder: (_) =>
@@ -165,9 +188,8 @@ class _CameraScreenState extends State<CameraScreen> {
   }
 
   void _showError(String message) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text('Error: $message')));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text('Error: $message')));
   }
 
   @override
@@ -177,7 +199,10 @@ class _CameraScreenState extends State<CameraScreen> {
       body: Stack(
         children: [
           Positioned.fill(
-            child: CameraWidget(onImageCaptured: _onImageCaptured),
+            child: CameraWidget(
+              onImageCaptured: _onImageCaptured,
+              onCameraReady: _onCameraReady,
+            ),
           ),
           if (_isProcessing) _buildProcessingDialog(),
         ],

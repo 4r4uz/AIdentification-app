@@ -7,9 +7,14 @@ import 'package:image/image.dart' as img;
 import 'package:path_provider/path_provider.dart';
 
 class CameraWidget extends StatefulWidget {
-  final Function(File image) onImageCaptured;
+  final Future<void> Function(File image) onImageCaptured;
+  final VoidCallback onCameraReady;
 
-  const CameraWidget({super.key, required this.onImageCaptured});
+  const CameraWidget({
+    super.key,
+    required this.onImageCaptured,
+    required this.onCameraReady,
+  });
 
   @override
   State<CameraWidget> createState() => _CameraWidgetState();
@@ -22,7 +27,11 @@ class _CameraWidgetState extends State<CameraWidget>
   bool _isReady = false;
   bool _hasError = false;
   bool _isTakingPicture = false;
+  bool _isProcessingImage = false;
   bool _isInitializing = false;
+  bool _isAppActive = true;
+  bool _isDisposed = false;
+  bool _restartWhenInitializationFinishes = false;
   bool _isTorchEnabled = false;
   bool _isZoomIndicatorVisible = false;
 
@@ -45,36 +54,53 @@ class _CameraWidgetState extends State<CameraWidget>
 
   @override
   void dispose() {
+    _isDisposed = true;
+    _isAppActive = false;
+    _cameraGeneration++;
     WidgetsBinding.instance.removeObserver(this);
     _zoomIndicatorTimer?.cancel();
-    _disposeCamera();
+    final controller = _controller;
+    _controller = null;
+    _isReady = false;
+    _isTorchEnabled = false;
+    unawaited(_disposeController(controller));
     super.dispose();
   }
 
+  int _cameraGeneration = 0;
+
   Future<void> _disposeCamera() async {
-    try {
-      await _controller?.dispose();
-    } catch (_) {}
-
+    final controller = _controller;
     _controller = null;
+    _isReady = false;
+    _isTorchEnabled = false;
 
-    if (mounted) {
-      setState(() {
-        _isReady = false;
-        _isTorchEnabled = false;
-      });
+    if (mounted && !_isDisposed) {
+      setState(() {});
+    }
+
+    await _disposeController(controller);
+  }
+
+  Future<void> _disposeController(CameraController? controller) async {
+    try {
+      if (controller != null) await controller.dispose();
+    } catch (error) {
+      debugPrint('CameraWidget: error liberando la cámara: $error');
     }
   }
 
   Future<void> _initCamera() async {
     if (_isInitializing) return;
     _isInitializing = true;
+    final generation = ++_cameraGeneration;
 
     try {
       await _disposeCamera();
 
       final status = await Permission.camera.request();
       if (!status.isGranted) {
+        debugPrint('CameraWidget: permiso de cámara denegado');
         if (mounted) {
           setState(() {
             _hasError = true;
@@ -104,8 +130,15 @@ class _CameraWidgetState extends State<CameraWidget>
 
       await controller.initialize();
 
-      if (!mounted) {
-        await controller.dispose();
+      if (!mounted ||
+          _isDisposed ||
+          !_isAppActive ||
+          generation != _cameraGeneration) {
+        if (_controller == controller) {
+          _controller = null;
+          _isReady = false;
+        }
+        await _disposeController(controller);
         return;
       }
 
@@ -113,11 +146,27 @@ class _CameraWidgetState extends State<CameraWidget>
       _maxZoom = await controller.getMaxZoomLevel();
       _currentZoom = _minZoom;
 
+      if (!mounted ||
+          _isDisposed ||
+          !_isAppActive ||
+          generation != _cameraGeneration ||
+          _controller != controller) {
+        if (_controller == controller) {
+          _controller = null;
+          _isReady = false;
+        }
+        await _disposeController(controller);
+        return;
+      }
+
       setState(() {
         _isReady = true;
         _hasError = false;
       });
+      debugPrint('CameraWidget: cámara inicializada correctamente');
+      widget.onCameraReady();
     } catch (e) {
+      debugPrint('CameraWidget: error inicializando la cámara: $e');
       if (!mounted) return;
       setState(() {
         _hasError = true;
@@ -126,6 +175,14 @@ class _CameraWidgetState extends State<CameraWidget>
       });
     } finally {
       _isInitializing = false;
+      if (mounted &&
+          _isAppActive &&
+          !_isDisposed &&
+          (_restartWhenInitializationFinishes ||
+              (_controller == null && generation != _cameraGeneration))) {
+        _restartWhenInitializationFinishes = false;
+        unawaited(_initCamera());
+      }
     }
   }
 
@@ -133,10 +190,18 @@ class _CameraWidgetState extends State<CameraWidget>
   void didChangeAppLifecycleState(AppLifecycleState state) async {
     if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.paused) {
+      _isAppActive = false;
+      _cameraGeneration++;
       await _disposeCamera();
     }
 
     if (state == AppLifecycleState.resumed) {
+      _isAppActive = true;
+      if (_isProcessingImage) return;
+      if (_isInitializing) {
+        _restartWhenInitializationFinishes = true;
+        return;
+      }
       if (_controller == null || !_isReady) {
         await _initCamera();
       }
@@ -145,21 +210,40 @@ class _CameraWidgetState extends State<CameraWidget>
 
   Future<void> takePicture() async {
     if (_isTakingPicture) return;
-    if (_controller == null || !_controller!.value.isInitialized) return;
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized || !mounted) {
+      return;
+    }
 
     setState(() => _isTakingPicture = true);
+    var shouldRestartCamera = false;
 
     try {
-      final XFile image = await _controller!.takePicture();
+      final XFile image = await controller.takePicture();
       await Future.delayed(const Duration(milliseconds: 100));
 
       final compressedFile = await _compressImage(image);
       debugPrint('Captured compressed path: ${compressedFile.path}');
-      widget.onImageCaptured(File(compressedFile.path));
-    } catch (_) {
+      if (mounted && !_isDisposed && _controller == controller) {
+        _isProcessingImage = true;
+        shouldRestartCamera = true;
+        await _disposeCamera();
+        if (mounted && !_isDisposed) {
+          await widget.onImageCaptured(File(compressedFile.path));
+        }
+      }
+    } catch (error) {
+      debugPrint('CameraWidget: error capturando la foto: $error');
     } finally {
       if (mounted) {
         setState(() => _isTakingPicture = false);
+      }
+      _isProcessingImage = false;
+      if (shouldRestartCamera &&
+          mounted &&
+          !_isDisposed &&
+          _isAppActive) {
+        await _initCamera();
       }
     }
   }
@@ -185,7 +269,10 @@ class _CameraWidgetState extends State<CameraWidget>
   }
 
   Future<void> _focusAtPoint(TapDownDetails details) async {
-    if (_controller == null || !_controller!.value.isInitialized) return;
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized || !mounted) {
+      return;
+    }
 
     final size = MediaQuery.of(context).size;
 
@@ -205,8 +292,8 @@ class _CameraWidgetState extends State<CameraWidget>
     });
 
     try {
-      await _controller!.setFocusPoint(Offset(dx, dy));
-      await _controller!.setExposurePoint(Offset(dx, dy));
+      await controller.setFocusPoint(Offset(dx, dy));
+      await controller.setExposurePoint(Offset(dx, dy));
     } catch (_) {}
   }
 

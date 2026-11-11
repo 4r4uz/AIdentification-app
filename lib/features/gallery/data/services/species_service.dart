@@ -24,17 +24,21 @@ class SpeciesService {
     }
   }
 
-  Future<SpeciesModel?> getSpeciesByName(String name) async {
+  Future<SpeciesModel?> getSpeciesByScientificName(String name) async {
+    final scientificName = name.trim();
+    if (scientificName.isEmpty) return null;
+
     try {
       final response = await _supabaseService.client
           .from('species')
           .select()
-          .ilike('name_common', name)
+          .eq('name_scientific', scientificName)
           .maybeSingle();
 
       if (response == null) return null;
       return SpeciesModel.fromJson(response);
     } catch (e) {
+      debugPrint('Error buscando especie por nombre científico: $e');
       return null;
     }
   }
@@ -92,7 +96,10 @@ class SpeciesService {
           )
           .toList();
 
-      if (facts.isEmpty) return [];
+      debugPrint('Datos curiosos cargados desde Supabase: ${facts.length}');
+      if (facts.isEmpty) {
+        return [];
+      }
 
       final speciesIds = facts.map((fact) => fact.speciesId).toSet().toList();
       final speciesResponse = await _supabaseService.client
@@ -130,42 +137,26 @@ class SpeciesService {
           )
           .toList();
     } catch (e) {
+      debugPrint('Error consultando species_facts en Supabase: $e');
       throw Exception('Error al obtener datos curiosos: ${e.toString()}');
     }
   }
 
-  Future<void> registerDetectedSpecies({
+  Future<SpeciesModel?> resolveDetectedSpecies({
     required String prediction,
     required String predictionSource,
   }) async {
-    if (predictionSource != 'classifier') return;
+    if (predictionSource != 'classifier') return null;
 
     final parts = prediction.split(';');
-    if (parts.length < 7) return;
+    if (parts.length < 7) return null;
 
     final genus = parts[4].trim();
     final speciesEpithet = parts[5].trim();
-    final commonName = parts[6].trim();
 
-    if (genus.isEmpty || speciesEpithet.isEmpty || commonName.isEmpty) return;
+    if (genus.isEmpty || speciesEpithet.isEmpty) return null;
 
     final scientificName = '$genus $speciesEpithet';
-
-    try {
-      final existing = await _supabaseService.client
-          .from('species')
-          .select('id')
-          .eq('name_scientific', scientificName)
-          .maybeSingle();
-
-      if (existing != null) return;
-
-      await _supabaseService.client.from('species').insert({
-        'name_common': commonName,
-        'name_scientific': scientificName,
-      });
-    } catch (e) {
-      debugPrint('Error al registrar especie detectada: $e');
-    }
+    return getSpeciesByScientificName(scientificName);
   }
 }

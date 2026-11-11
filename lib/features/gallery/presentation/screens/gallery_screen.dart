@@ -1,5 +1,3 @@
-import 'dart:ui' as ui;
-
 import 'package:flutter/material.dart';
 
 import '/shared/widgets/common_widgets.dart';
@@ -8,7 +6,6 @@ import '/features/auth/data/services/auth_service.dart';
 import '/features/gallery/data/services/species_service.dart';
 import '/core/theme/app_theme.dart';
 import '/core/theme/colors.dart';
-import '/features/auth/presentation/screens/login_screen.dart';
 
 class GalleryScreen extends StatefulWidget {
   final bool isActive;
@@ -53,6 +50,12 @@ class _GalleryScreenState extends State<GalleryScreen> {
             oldWidget.isAuthenticated != widget.isAuthenticated);
 
     if (shouldReload) {
+      if (!widget.isAuthenticated && mounted) {
+        setState(() {
+          _discoveredSpeciesIds = <int>{};
+          _loadError = null;
+        });
+      }
       _loadSpecies();
     }
   }
@@ -292,50 +295,34 @@ class _GalleryScreenState extends State<GalleryScreen> {
 
   Widget _buildLockedOverlay(BuildContext context) {
     return Positioned.fill(
-      child: ClipRect(
-        child: BackdropFilter(
-          filter: ui.ImageFilter.blur(sigmaX: 8, sigmaY: 8),
-          child: Container(
-            color: context.palette.background.withValues(alpha: 0.52),
-            alignment: Alignment.center,
-            padding: const EdgeInsets.all(28),
-            child: Container(
-              padding: const EdgeInsets.all(24),
-              decoration: AppTheme.cardDecoration(context),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.lock_outline_rounded,
-                    size: 38,
-                    color: context.palette.primary,
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Galería bloqueada',
-                    textAlign: TextAlign.center,
-                    style: AppTheme.headingStyle(context),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Inicia sesión para desbloquear tu colección y guardar tus hallazgos.',
-                    textAlign: TextAlign.center,
-                    style: AppTheme.bodyStyle(context),
-                  ),
-                  const SizedBox(height: 18),
-                  FilledButton.icon(
-                    onPressed: () {
-                      Navigator.of(context).pop();
-                      Navigator.of(context).push(
-                        MaterialPageRoute(builder: (_) => const LoginScreen()),
-                      );
-                    },
-                    icon: const Icon(Icons.login_rounded),
-                    label: const Text('Iniciar sesión'),
-                  ),
-                ],
+      child: Container(
+        color: context.palette.background.withValues(alpha: 0.18),
+        alignment: Alignment.center,
+        padding: const EdgeInsets.all(28),
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          decoration: AppTheme.cardDecoration(context),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.lock_outline_rounded,
+                size: 38,
+                color: context.palette.primary,
               ),
-            ),
+              const SizedBox(height: 16),
+              Text(
+                'Galería bloqueada',
+                textAlign: TextAlign.center,
+                style: AppTheme.headingStyle(context),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Inicia sesión para desbloquear tu colección y guardar tus hallazgos.',
+                textAlign: TextAlign.center,
+                style: AppTheme.bodyStyle(context),
+              ),
+            ],
           ),
         ),
       ),
@@ -485,6 +472,7 @@ class _SpeciesCard extends StatelessWidget {
                 width: double.infinity,
                 height: 120,
                 borderRadius: 16,
+                silhouette: !isUnlocked,
               ),
               const Spacer(),
               Text(
@@ -523,12 +511,14 @@ class _SpeciesImage extends StatelessWidget {
   final double width;
   final double height;
   final double borderRadius;
+  final bool silhouette;
 
   const _SpeciesImage({
     required this.species,
     required this.width,
     required this.height,
     required this.borderRadius,
+    this.silhouette = false,
   });
 
   @override
@@ -546,32 +536,47 @@ class _SpeciesImage extends StatelessWidget {
             ? Icon(
                 Icons.pets_rounded,
                 size: height >= 80 ? 42 : 24,
-                color: context.palette.primary,
+                color: silhouette ? Colors.black : context.palette.primary,
               )
-            : Image.network(
-                imageUrl,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) => Icon(
-                  Icons.pets_rounded,
-                  size: height >= 80 ? 42 : 24,
-                  color: context.palette.primary,
-                ),
-                loadingBuilder: (context, child, loadingProgress) {
-                  if (loadingProgress == null) return child;
-                  return Center(
-                    child: SizedBox(
-                      width: 22,
-                      height: 22,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        value: loadingProgress.expectedTotalBytes == null
-                            ? null
-                            : loadingProgress.cumulativeBytesLoaded /
-                                loadingProgress.expectedTotalBytes!,
+            : ColorFiltered(
+                colorFilter: silhouette
+                    ? const ColorFilter.matrix([
+                        0, 0, 0, 0, 0,
+                        0, 0, 0, 0, 0,
+                        0, 0, 0, 0, 0,
+                        0, 0, 0, 1, 0,
+                      ])
+                    : const ColorFilter.mode(
+                        Colors.transparent,
+                        BlendMode.dst,
                       ),
-                    ),
-                  );
-                },
+                child: Image.network(
+                  imageUrl,
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) => Icon(
+                    Icons.pets_rounded,
+                    size: height >= 80 ? 42 : 24,
+                    color: silhouette
+                        ? Colors.black
+                        : context.palette.primary,
+                  ),
+                  loadingBuilder: (context, child, loadingProgress) {
+                    if (loadingProgress == null) return child;
+                    return Center(
+                      child: SizedBox(
+                        width: 22,
+                        height: 22,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          value: loadingProgress.expectedTotalBytes == null
+                              ? null
+                              : loadingProgress.cumulativeBytesLoaded /
+                                  loadingProgress.expectedTotalBytes!,
+                        ),
+                      ),
+                    );
+                  },
+                ),
               ),
       ),
     );

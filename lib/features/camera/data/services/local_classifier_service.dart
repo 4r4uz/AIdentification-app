@@ -8,7 +8,7 @@ import 'package:flutter_onnxruntime/flutter_onnxruntime.dart';
 
 class LocalClassifierService {
   static const String _modelAsset =
-      'assets/models/speciesnet_fp16.onnx';
+      'assets/models/speciesnet_fp32.onnx';
 
   static const String _labelsAsset =
       'assets/models/labels.txt';

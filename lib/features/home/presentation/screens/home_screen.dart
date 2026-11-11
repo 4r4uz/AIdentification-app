@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '/core/theme/app_theme.dart';
 import '/core/theme/colors.dart';
@@ -28,12 +29,28 @@ class _HomeScreenState extends State<HomeScreen> {
   final SpeciesService _speciesService = SpeciesService();
   String? _imageUrl;
   late Future<List<SpeciesFactModel>> _factsFuture;
+  StreamSubscription<AuthState>? _authSubscription;
 
   @override
   void initState() {
     super.initState();
+    _authSubscription = _authService.authStateChanges.listen((state) {
+      if (!mounted) return;
+      if (state.event == AuthChangeEvent.signedOut ||
+          _authService.currentUser == null) {
+        setState(() => _imageUrl = null);
+      } else if (state.event == AuthChangeEvent.signedIn) {
+        _loadProfileImage();
+      }
+    });
     _factsFuture = _speciesService.getAllSpeciesFacts();
     _loadProfileImage();
+  }
+
+  @override
+  void dispose() {
+    _authSubscription?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadProfileImage() async {
@@ -325,16 +342,21 @@ class _FactsCarouselState extends State<_FactsCarousel> {
     }
 
     if (_factsError != null) {
-      return SizedBox(
-        height: 142,
-        child: Center(child: Text(_factsError!)),
+      return _FactsMessage(
+        message: _factsError!,
+        onRetry: () {
+          setState(() {
+            _isLoadingFacts = true;
+            _factsError = null;
+          });
+          _loadFacts();
+        },
       );
     }
 
     if (_facts.isEmpty) {
-      return const SizedBox(
-        height: 142,
-        child: Center(child: Text('Aún no hay datos curiosos disponibles.')),
+      return const _FactsMessage(
+        message: 'Aún no hay datos curiosos en Supabase.',
       );
     }
 
@@ -420,6 +442,35 @@ class _FactsCarouselState extends State<_FactsCarousel> {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _FactsMessage extends StatelessWidget {
+  final String message;
+  final VoidCallback? onRetry;
+
+  const _FactsMessage({required this.message, this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 142,
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(message, textAlign: TextAlign.center),
+            if (onRetry != null) ...[
+              const SizedBox(height: 8),
+              TextButton(
+                onPressed: onRetry,
+                child: const Text('Reintentar'),
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 }

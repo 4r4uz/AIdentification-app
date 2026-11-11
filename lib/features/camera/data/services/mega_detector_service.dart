@@ -1,7 +1,7 @@
 
 import 'dart:math' as math;
-import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_onnxruntime/flutter_onnxruntime.dart';
 import 'package:image/image.dart' as img;
 
@@ -23,7 +23,7 @@ class MegaDetection {
 
 class MegaDetectorService {
   static const String _modelAsset =
-      'assets/models/megadetector_v6_fp16.onnx';
+      'assets/models/MDV6-yolov10-e-1280.onnx';
 
   static const int _inputSize = 1280;
 
@@ -236,7 +236,8 @@ class MegaDetectorService {
 
     final candidateCount = output.length ~/ featureCount;
 
-    var bestConfidence = _animalThreshold;
+    var bestConfidence = -double.infinity;
+    var animalCandidateCount = 0;
 
     double? bestLeft;
     double? bestTop;
@@ -288,6 +289,7 @@ class MegaDetectorService {
             confidence <= vehicleConfidence) {
           continue;
         }
+        animalCandidateCount++;
 
         final centerX = _valueAt(
           output,
@@ -355,6 +357,7 @@ class MegaDetectorService {
         if (classId.round() != _animalClassIndex) {
           continue;
         }
+        animalCandidateCount++;
 
         left = _valueAt(
           output,
@@ -416,8 +419,27 @@ class MegaDetectorService {
         bestTop == null ||
         bestRight == null ||
         bestBottom == null) {
+      debugPrint(
+        'MegaDetector: no detectado; forma=${outputShape.join('x')}, '
+        'candidatos=$candidateCount, candidatosAnimal=$animalCandidateCount, '
+        'mejorConfianza=$bestConfidence',
+      );
       return null;
     }
+
+    if (bestConfidence < _animalThreshold) {
+      debugPrint(
+        'MegaDetector: detección descartada por confianza '
+        '($bestConfidence < $_animalThreshold)',
+      );
+      return null;
+    }
+
+    debugPrint(
+      'MegaDetector: detectado; forma=${outputShape.join('x')}, '
+      'candidatos=$candidateCount, candidatosAnimal=$animalCandidateCount, '
+      'confianza=$bestConfidence',
+    );
 
     // --------------------------------------------------
     // COORDENADAS NORMALIZADAS O EN PIXELES

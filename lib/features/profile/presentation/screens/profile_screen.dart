@@ -45,10 +45,28 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String? _avatarUrl;
   File? _localAvatarFile;
   String? _loadError;
+  StreamSubscription<AuthState>? _authSubscription;
 
   @override
   void initState() {
     super.initState();
+    _authSubscription = _authService.authStateChanges.listen((state) {
+      if (!mounted) return;
+      if (state.event == AuthChangeEvent.signedOut ||
+          _authService.currentUser == null) {
+        setState(() {
+          _currentUser = null;
+          _totalDetections = 0;
+          _avatarUrl = null;
+          _localAvatarFile = null;
+          _loadError = null;
+          _hasLoaded = false;
+          _isLoading = false;
+        });
+      } else if (state.event == AuthChangeEvent.signedIn) {
+        _loadUserData();
+      }
+    });
     ProfileRefreshNotifier.detectionSaved.addListener(
       _onSuccessfulDetectionSaved,
     );
@@ -84,6 +102,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   @override
   void dispose() {
+    _authSubscription?.cancel();
     ProfileRefreshNotifier.detectionSaved.removeListener(
       _onSuccessfulDetectionSaved,
     );
@@ -146,19 +165,35 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _openSettings() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => const ProfileSettingsScreen()),
+    final result = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
+        builder: (_) => const ProfileSettingsScreen(),
+      ),
     );
+
+    if (result == true && mounted) {
+      Navigator.of(context).pop(true);
+    }
   }
 
-  void _openLogin() {
-    Navigator.of(context)
-        .push(MaterialPageRoute<void>(builder: (_) => const LoginScreen()));
+  Future<void> _openLogin() async {
+    final result = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(builder: (_) => const LoginScreen()),
+    );
+
+    if (result == true && mounted) {
+      Navigator.of(context).pop(true);
+    }
   }
 
-  void _openRegister() {
-    Navigator.of(context)
-        .push(MaterialPageRoute<void>(builder: (_) => const RegisterScreen()));
+  Future<void> _openRegister() async {
+    final result = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(builder: (_) => const RegisterScreen()),
+    );
+
+    if (result == true && mounted) {
+      Navigator.of(context).pop(true);
+    }
   }
 
   Future<void> _pickAndUploadImage() async {
