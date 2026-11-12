@@ -40,8 +40,11 @@ class AnimalIdentificationService {
 
   /// Libera los recursos de ambos modelos.
   Future<void> dispose() async {
-    await _megaDetectorService.dispose();
-    await _localClassifierService.dispose();
+    try {
+      await _megaDetectorService.dispose();
+    } finally {
+      await _localClassifierService.dispose();
+    }
   }
 
   /// Ejecuta el proceso completo de identificación:

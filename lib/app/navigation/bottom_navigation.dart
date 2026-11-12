@@ -57,7 +57,9 @@ class _BottomNavigationState extends State<BottomNavigation> {
 
   List<Widget> get _screens => [
     HomeScreen(onNavigate: _onItemTapped, onProfileTap: () => _openProfile()),
-    _hasVisitedCamera ? const CameraScreen() : const SizedBox.shrink(),
+    _hasVisitedCamera
+        ? CameraScreen(isActive: _currentIndex == 1)
+        : const SizedBox.shrink(),
     GalleryScreen(
       isActive: _currentIndex == 2 && _isAuthenticated,
       isAuthenticated: _isAuthenticated,

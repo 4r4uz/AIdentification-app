@@ -16,7 +16,9 @@ import '/core/theme/colors.dart';
 import '/features/camera/presentation/screens/result_screen.dart';
 
 class CameraScreen extends StatefulWidget {
-  const CameraScreen({super.key});
+  final bool isActive;
+
+  const CameraScreen({super.key, required this.isActive});
 
   @override
   State<CameraScreen> createState() => _CameraScreenState();
@@ -39,14 +41,33 @@ class _CameraScreenState extends State<CameraScreen> {
   bool _isDetectorInitializing = false;
   String? _detectorError;
   Future<void>? _detectorInitialization;
+  Future<void>? _aiDisposal;
+  Completer<void>? _inferenceCompletion;
+
+  @override
+  void didUpdateWidget(covariant CameraScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isActive && !widget.isActive) {
+      unawaited(_releaseAIWhenIdle());
+    }
+  }
 
   void _onCameraReady() {
+    if (!mounted || !widget.isActive) return;
     debugPrint('CameraScreen: cámara lista; iniciando MegaDetector');
     unawaited(_initializeDetector());
   }
 
   Future<void> _initializeDetector() async {
-    if (_animalIdentificationService.isDetectorLoaded) return;
+    final disposal = _aiDisposal;
+    if (disposal != null) await disposal;
+    if (!mounted || !widget.isActive) return;
+    if (_animalIdentificationService.isDetectorLoaded) {
+      if (!_isDetectorReady) {
+        setState(() => _isDetectorReady = true);
+      }
+      return;
+    }
     final initialization = _detectorInitialization;
     if (initialization != null) {
       await initialization;
@@ -65,6 +86,7 @@ class _CameraScreenState extends State<CameraScreen> {
   }
 
   Future<void> _initializeDetectorInternal() async {
+    if (!mounted || !widget.isActive) return;
     _isDetectorInitializing = true;
     if (mounted) {
       setState(() {
@@ -76,10 +98,9 @@ class _CameraScreenState extends State<CameraScreen> {
     try {
       debugPrint('CameraScreen: inicializando MegaDetector');
       await _animalIdentificationService.initializeDetector();
+      if (!mounted || !widget.isActive) return;
       debugPrint('CameraScreen: MegaDetector listo');
-      if (mounted) {
-        setState(() => _isDetectorReady = true);
-      }
+      setState(() => _isDetectorReady = true);
     } catch (error) {
       debugPrint('CameraScreen: error inicializando MegaDetector: $error');
       if (mounted) setState(() => _detectorError = error.toString());
@@ -90,13 +111,43 @@ class _CameraScreenState extends State<CameraScreen> {
 
   @override
   void dispose() {
-    unawaited(_disposeAI());
+    unawaited(_releaseAIWhenIdle());
     super.dispose();
   }
 
-  Future<void> _disposeAI() async {
+  Future<void> _releaseAIWhenIdle() async {
+    final existingDisposal = _aiDisposal;
+    if (existingDisposal != null) {
+      await existingDisposal;
+      return;
+    }
+
+    final disposal = _releaseAIInternal().catchError((Object error) {
+      debugPrint('CameraScreen: error liberando modelos IA: $error');
+    });
+    _aiDisposal = disposal;
+    try {
+      await disposal;
+    } finally {
+      if (identical(_aiDisposal, disposal)) _aiDisposal = null;
+    }
+  }
+
+  Future<void> _releaseAIInternal() async {
+    final inference = _inferenceCompletion;
+    if (inference != null) await inference.future;
     await _detectorInitialization;
+
+    if (mounted && widget.isActive) return;
+
     await _animalIdentificationService.dispose();
+    if (mounted && !widget.isActive) {
+      setState(() {
+        _isDetectorReady = false;
+        _detectorError = null;
+      });
+      debugPrint('CameraScreen: modelos IA liberados al ocultar la pestaña');
+    }
   }
 
   Future<void> _onImageCaptured(File imageFile) async {
@@ -120,7 +171,17 @@ class _CameraScreenState extends State<CameraScreen> {
         throw Exception('No se pudo decodificar la imagen capturada');
       }
       final image = img.bakeOrientation(decodedImage);
-      final result = await _animalIdentificationService.identifyAnimal(image);
+      final inference = Completer<void>();
+      _inferenceCompletion = inference;
+      final Map<String, dynamic> result;
+      try {
+        result = await _animalIdentificationService.identifyAnimal(image);
+      } finally {
+        inference.complete();
+        if (identical(_inferenceCompletion, inference)) {
+          _inferenceCompletion = null;
+        }
+      }
       debugPrint(
         'CameraScreen: resultado IA '
         'status=${result['status']}, label=${result['label']}, '
@@ -200,6 +261,7 @@ class _CameraScreenState extends State<CameraScreen> {
         children: [
           Positioned.fill(
             child: CameraWidget(
+              isActive: widget.isActive,
               onImageCaptured: _onImageCaptured,
               onCameraReady: _onCameraReady,
             ),

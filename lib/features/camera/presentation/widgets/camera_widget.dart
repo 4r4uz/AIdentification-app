@@ -1,17 +1,22 @@
 import 'dart:async';
+
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+
 import 'dart:io';
+
 import 'package:permission_handler/permission_handler.dart';
 import 'package:image/image.dart' as img;
 import 'package:path_provider/path_provider.dart';
 
 class CameraWidget extends StatefulWidget {
+  final bool isActive;
   final Future<void> Function(File image) onImageCaptured;
   final VoidCallback onCameraReady;
 
   const CameraWidget({
     super.key,
+    required this.isActive,
     required this.onImageCaptured,
     required this.onCameraReady,
   });
@@ -49,7 +54,20 @@ class _CameraWidgetState extends State<CameraWidget>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _initCamera();
+    if (widget.isActive) unawaited(_initCamera());
+  }
+
+  @override
+  void didUpdateWidget(covariant CameraWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isActive == widget.isActive) return;
+
+    if (widget.isActive) {
+      if (_isAppActive) unawaited(_initCamera());
+    } else {
+      _cameraGeneration++;
+      unawaited(_disposeCamera());
+    }
   }
 
   @override
@@ -91,7 +109,12 @@ class _CameraWidgetState extends State<CameraWidget>
   }
 
   Future<void> _initCamera() async {
-    if (_isInitializing) return;
+    if (_isInitializing ||
+        !widget.isActive ||
+        !_isAppActive ||
+        _isProcessingImage) {
+      return;
+    }
     _isInitializing = true;
     final generation = ++_cameraGeneration;
 
@@ -176,6 +199,7 @@ class _CameraWidgetState extends State<CameraWidget>
     } finally {
       _isInitializing = false;
       if (mounted &&
+          widget.isActive &&
           _isAppActive &&
           !_isDisposed &&
           (_restartWhenInitializationFinishes ||
@@ -197,7 +221,7 @@ class _CameraWidgetState extends State<CameraWidget>
 
     if (state == AppLifecycleState.resumed) {
       _isAppActive = true;
-      if (_isProcessingImage) return;
+      if (!widget.isActive || _isProcessingImage) return;
       if (_isInitializing) {
         _restartWhenInitializationFinishes = true;
         return;
@@ -242,6 +266,7 @@ class _CameraWidgetState extends State<CameraWidget>
       if (shouldRestartCamera &&
           mounted &&
           !_isDisposed &&
+          widget.isActive &&
           _isAppActive) {
         await _initCamera();
       }
@@ -333,9 +358,7 @@ class _CameraWidgetState extends State<CameraWidget>
       debugPrint('Error cambiando la linterna: $error');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('No se pudo cambiar la linterna: $error'),
-          ),
+          SnackBar(content: Text('No se pudo cambiar la linterna: $error')),
         );
       }
     }
@@ -488,11 +511,7 @@ class _CameraWidgetState extends State<CameraWidget>
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(
-            Icons.camera_alt_outlined,
-            color: Colors.white,
-            size: 48,
-          ),
+          const Icon(Icons.camera_alt_outlined, color: Colors.white, size: 48),
           const SizedBox(height: 16),
           Text(
             _errorMessage,
@@ -500,10 +519,7 @@ class _CameraWidgetState extends State<CameraWidget>
             style: const TextStyle(color: Colors.white),
           ),
           const SizedBox(height: 16),
-          FilledButton(
-            onPressed: _initCamera,
-            child: const Text('Reintentar'),
-          ),
+          FilledButton(onPressed: _initCamera, child: const Text('Reintentar')),
         ],
       ),
     ),
