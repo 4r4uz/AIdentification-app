@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '/core/service_locator.dart';
 import '/core/theme/app_theme.dart';
 import '/core/theme/colors.dart';
 import '/core/constants/app_texts.dart';
@@ -24,9 +25,9 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final AuthService _authService = AuthService();
-  final ProfileService _profileService = ProfileService();
-  final SpeciesService _speciesService = SpeciesService();
+  final AuthService _authService = ServiceLocator.auth;
+  final ProfileService _profileService = ServiceLocator.profile;
+  final SpeciesService _speciesService = ServiceLocator.species;
   String? _imageUrl;
   late Future<List<SpeciesFactModel>> _factsFuture;
   StreamSubscription<AuthState>? _authSubscription;

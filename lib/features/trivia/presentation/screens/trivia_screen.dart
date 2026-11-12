@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
+
+import '/core/service_locator.dart';
 import '/core/theme/colors.dart';
 import '/core/theme/app_theme.dart';
-import '/features/trivia/data/services/trivia_service.dart';
-import '/features/auth/data/services/auth_service.dart';
 import '/features/trivia/data/models/trivia_model.dart';
 import '/shared/widgets/common_widgets.dart';
 
@@ -14,8 +14,8 @@ class TriviaScreen extends StatefulWidget {
 }
 
 class _TriviaScreenState extends State<TriviaScreen> {
-  final TriviaService _triviaService = TriviaService();
-  final AuthService _authService = AuthService();
+  final _triviaService = ServiceLocator.trivia;
+  final _authService = ServiceLocator.auth;
 
   List<TriviaModel> _trivias = [];
   int _currentIndex = 0;

@@ -1,4 +1,5 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
+
 import '/core/network/supabase_service.dart';
 import '/features/auth/data/models/user_model.dart';
 
@@ -19,7 +20,8 @@ class AuthService {
         email: email,
         password: password,
         data: {
-          if (username != null && username.trim().isNotEmpty) 'username': username.trim(),
+          if (username != null && username.trim().isNotEmpty)
+            'username': username.trim(),
         },
       );
 
@@ -100,8 +102,9 @@ class AuthService {
           .from('profiles')
           .select()
           .eq('id', user.id)
-          .single();
+          .maybeSingle();
 
+      if (response == null) return null;
       return UserModel.fromJson(response);
     } catch (e) {
       return null;

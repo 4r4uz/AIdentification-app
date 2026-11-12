@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '/core/service_locator.dart';
 import '/shared/widgets/common_widgets.dart';
 import '/features/gallery/data/models/species_model.dart';
-import '/features/auth/data/services/auth_service.dart';
-import '/features/gallery/data/services/species_service.dart';
 import '/core/theme/app_theme.dart';
 import '/core/theme/colors.dart';
 
@@ -22,8 +21,8 @@ class GalleryScreen extends StatefulWidget {
 }
 
 class _GalleryScreenState extends State<GalleryScreen> {
-  final AuthService _authService = AuthService();
-  final SpeciesService _speciesService = SpeciesService();
+  final _authService = ServiceLocator.auth;
+  final _speciesService = ServiceLocator.species;
 
   List<SpeciesModel> _species = [];
   List<SpeciesModel> _filteredSpecies = [];
@@ -67,15 +66,27 @@ class _GalleryScreenState extends State<GalleryScreen> {
     setState(() => _loadError = null);
 
     try {
-      final speciesList = await _speciesService.getAllSpecies();
-      final discoveredIds = <int>{};
+      final userId = widget.isAuthenticated ? _authService.currentUser?.id : null;
+      final results = await Future.wait<List<SpeciesModel>>([
+        _speciesService.getAllSpecies(),
+        if (userId != null) _speciesService.getDiscoveredSpecies(userId),
+      ]);
+      final speciesList = results.first;
 
-      if (widget.isAuthenticated && _authService.currentUser != null) {
-        final discoveredSpecies = await _speciesService.getDiscoveredSpecies(
-          _authService.currentUser!.id,
-        );
-        discoveredIds.addAll(discoveredSpecies.map((species) => species.id));
+      final activeUserId = widget.isAuthenticated
+          ? _authService.currentUser?.id
+          : null;
+      if (activeUserId != userId) {
+        if (mounted && widget.isActive) {
+          _isFetching = false;
+          await _loadSpecies();
+        }
+        return;
       }
+
+      final discoveredIds = results.length > 1
+          ? results[1].map((species) => species.id).toSet()
+          : <int>{};
 
       if (!mounted) return;
 

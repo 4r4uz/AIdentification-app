@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '/core/theme/app_theme.dart';
 import '/core/theme/colors.dart';
-import '/features/auth/data/services/auth_service.dart';
+import '/core/service_locator.dart';
 import '/features/auth/presentation/widgets/auth_input.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -15,7 +15,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-  final _authService = AuthService();
+  final _authService = ServiceLocator.auth;
   bool _isLoading = false;
   bool _obscurePassword = true;
 

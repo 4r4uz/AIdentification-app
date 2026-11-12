@@ -26,6 +26,8 @@ class LocalClassifierService {
   OrtSession? _session;
   List<String>? _labels;
 
+  bool _isDisposed = false;
+
   Future<void>? _initializationFuture;
 
   bool get isModelLoaded => _session != null;
@@ -88,6 +90,8 @@ class LocalClassifierService {
 
   /// Libera los recursos del modelo.
   Future<void> dispose() async {
+    if (_isDisposed) return;
+    _isDisposed = true;
     await _session?.close();
 
     _session = null;

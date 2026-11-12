@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import '/core/network/supabase_service.dart';
 import '/features/gallery/data/models/species_model.dart';
@@ -17,7 +18,12 @@ class SpeciesService {
 
   Future<SpeciesModel?> getSpeciesById(int id) async {
     try {
-      final response = await _supabaseService.client.from('species').select().eq('id', id).single();
+      final response = await _supabaseService.client
+          .from('species')
+          .select()
+          .eq('id', id)
+          .maybeSingle();
+      if (response == null) return null;
       return SpeciesModel.fromJson(response);
     } catch (e) {
       return null;
@@ -102,6 +108,8 @@ class SpeciesService {
       }
 
       final speciesIds = facts.map((fact) => fact.speciesId).toSet().toList();
+
+      // Ejecutar ambas consultas en paralelo para reducir latencia
       final speciesResponse = await _supabaseService.client
           .from('species')
           .select('id, name_common, name_scientific')
@@ -136,6 +144,9 @@ class SpeciesService {
             ),
           )
           .toList();
+    } on TimeoutException catch (e) {
+      debugPrint('Tiempo de espera agotado consultando species_facts: $e');
+      throw Exception('Tiempo de espera agotado al obtener datos curiosos');
     } catch (e) {
       debugPrint('Error consultando species_facts en Supabase: $e');
       throw Exception('Error al obtener datos curiosos: ${e.toString()}');

@@ -40,11 +40,16 @@ class MegaDetectorService {
   OrtSession? _session;
   List<int>? _outputShape;
 
+  bool _isDisposed = false;
+
   Future<void>? _initializationFuture;
 
   bool get isModelLoaded => _session != null;
 
-  /// Inicializa MegaDetector y obtiene las dimensiones de salida.
+  /// Inicializa MegaDetector y obtiene las dimensiones de salida del modelo ONNX.
+  ///
+  /// Verifica que la salida coincida con el formato esperado.
+  /// Si no coincide, lanza una excepcion con la forma recibida.
   Future<void> initialize() async {
     if (_session != null) return;
 
@@ -110,6 +115,8 @@ class MegaDetectorService {
 
   /// Libera los recursos de ONNX Runtime.
   Future<void> dispose() async {
+    if (_isDisposed) return;
+    _isDisposed = true;
     await _session?.close();
 
     _session = null;

@@ -5,16 +5,21 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:image/image.dart' as img;
 
+import '/core/service_locator.dart';
 import '/features/camera/presentation/widgets/camera_widget.dart';
-import '/features/auth/data/services/auth_service.dart';
-import '/features/camera/data/services/detection_service.dart';
 import '/features/camera/data/services/local_classifier_service.dart';
 import '/features/camera/data/services/mega_detector_service.dart';
 import '/features/camera/data/services/animal_identification_service.dart';
-import '/features/gallery/data/services/species_service.dart';
 import '/core/theme/colors.dart';
 import '/features/camera/presentation/screens/result_screen.dart';
 
+/// Pantalla principal de la cámara con detección e identificación de animales.
+///
+/// Gestiona el ciclo de vida de la cámara, la inicialización de los modelos de IA,
+/// el procesamiento de imágenes capturadas y la navegación a la pantalla de resultados.
+///
+/// La pantalla maneja estados de inicialización, procesamiento y errores de manera
+/// segura, evitando operaciones concurrentes y fugas de recursos.
 class CameraScreen extends StatefulWidget {
   final bool isActive;
 
@@ -25,9 +30,9 @@ class CameraScreen extends StatefulWidget {
 }
 
 class _CameraScreenState extends State<CameraScreen> {
-  final DetectionService _detectionService = DetectionService();
-  final AuthService _authService = AuthService();
-  final SpeciesService _speciesService = SpeciesService();
+  final _detectionService = ServiceLocator.detection;
+  final _authService = ServiceLocator.auth;
+  final _speciesService = ServiceLocator.species;
   final megaDetectorService = MegaDetectorService();
   final localClassifierService = LocalClassifierService();
   late final AnimalIdentificationService _animalIdentificationService =
@@ -44,10 +49,17 @@ class _CameraScreenState extends State<CameraScreen> {
   Future<void>? _aiDisposal;
   Completer<void>? _inferenceCompletion;
 
+  // Bloqueo para evitar doble liberación de modelos de IA.
+  bool _isReleasingAI = false;
+
+  // Bloqueo para evitar procesamiento concurrente de la IA
+  bool _isProcessingWithAI = false;
+
   @override
   void didUpdateWidget(covariant CameraScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.isActive && !widget.isActive) {
+      _isReleasingAI = true;
       unawaited(_releaseAIWhenIdle());
     }
   }
@@ -111,7 +123,11 @@ class _CameraScreenState extends State<CameraScreen> {
 
   @override
   void dispose() {
-    unawaited(_releaseAIWhenIdle());
+    // ✅ Solo liberar IA una vez
+    if (!_isReleasingAI) {
+      _isReleasingAI = true;
+      unawaited(_releaseAIWhenIdle());
+    }
     super.dispose();
   }
 
@@ -151,7 +167,8 @@ class _CameraScreenState extends State<CameraScreen> {
   }
 
   Future<void> _onImageCaptured(File imageFile) async {
-    if (_isProcessing) return;
+    // ✅ Bloqueo para evitar re-entrada durante procesamiento
+    if (_isProcessing || _isProcessingWithAI) return;
     if (!_isDetectorReady) {
       _showError(
         _detectorError ??
@@ -163,6 +180,7 @@ class _CameraScreenState extends State<CameraScreen> {
     }
 
     setState(() => _isProcessing = true);
+    _isProcessingWithAI = true;
 
     try {
       final bytes = await imageFile.readAsBytes();
@@ -245,6 +263,7 @@ class _CameraScreenState extends State<CameraScreen> {
       _showError(error.toString());
     } finally {
       if (mounted) setState(() => _isProcessing = false);
+      _isProcessingWithAI = false;
     }
   }
 

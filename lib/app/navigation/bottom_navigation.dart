@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '/core/service_locator.dart';
 import '/features/auth/data/services/auth_service.dart';
 import '/features/home/presentation/screens/home_screen.dart';
 import '/features/camera/presentation/screens/camera_screen.dart';
@@ -28,7 +29,7 @@ class BottomNavigation extends StatefulWidget {
 class _BottomNavigationState extends State<BottomNavigation> {
   int _currentIndex = 0;
   bool _hasVisitedCamera = false;
-  final AuthService _authService = AuthService();
+  final AuthService _authService = ServiceLocator.auth;
   late bool _isAuthenticated;
   late final StreamSubscription<AuthState> _authSubscription;
 

@@ -5,9 +5,10 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '/shared/widgets/common_widgets.dart';
+import '/core/service_locator.dart';
 import '/features/auth/data/services/auth_service.dart';
 import '/features/camera/data/services/detection_service.dart';
+import '/shared/widgets/common_widgets.dart';
 import '/features/profile/data/services/profile_refresh_notifier.dart';
 import '/features/profile/data/services/profile_service.dart';
 import '/core/theme/app_theme.dart';
@@ -31,9 +32,9 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  final AuthService _authService = AuthService();
-  final DetectionService _detectionService = DetectionService();
-  final ProfileService _profileService = ProfileService();
+  final AuthService _authService = ServiceLocator.auth;
+  final DetectionService _detectionService = ServiceLocator.detection;
+  final ProfileService _profileService = ServiceLocator.profile;
   final ImagePicker _imagePicker = ImagePicker();
 
   User? _currentUser;
@@ -145,8 +146,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         _currentUser = user;
         _totalDetections = results[0] as int;
         _avatarUrl =
-            results[1] as String? ??
-            (metadataAvatar is String ? metadataAvatar : null);
+            results[1] as String? ?? metadataAvatar as String?;
         _hasLoaded = true;
         _isLoading = false;
       });

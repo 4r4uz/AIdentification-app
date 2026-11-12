@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '/core/theme/app_theme.dart';
 import '/core/theme/colors.dart';
-import '/features/auth/data/services/auth_service.dart';
+import '/core/service_locator.dart';
 import '/features/auth/presentation/widgets/auth_input.dart';
 
 class RegisterScreen extends StatefulWidget {
@@ -17,7 +17,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
   final _usernameController = TextEditingController();
-  final _authService = AuthService();
+  final _authService = ServiceLocator.auth;
   bool _isLoading = false;
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;

@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '/features/auth/data/services/auth_service.dart';
+import '/core/service_locator.dart';
 import '/core/theme/app_theme.dart';
 import '/core/theme/colors.dart';
 import '/features/auth/presentation/screens/login_screen.dart';
@@ -17,7 +17,7 @@ class ProfileSettingsScreen extends StatefulWidget {
 }
 
 class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
-  final AuthService _authService = AuthService();
+  final _authService = ServiceLocator.auth;
   StreamSubscription<AuthState>? _authSubscription;
   bool _showEmail = false;
   bool _isSigningOut = false;
