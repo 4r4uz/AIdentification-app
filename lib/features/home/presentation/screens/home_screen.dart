@@ -6,7 +6,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '/core/service_locator.dart';
 import '/core/theme/app_theme.dart';
 import '/core/theme/colors.dart';
-import '/core/constants/app_texts.dart';
 import '/features/auth/data/services/auth_service.dart';
 import '/features/profile/data/services/profile_service.dart';
 import '/features/profile/presentation/screens/profile_settings_screen.dart';
@@ -30,6 +29,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final SpeciesService _speciesService = ServiceLocator.species;
   String? _imageUrl;
   late Future<List<SpeciesFactModel>> _factsFuture;
+  late Future<({int total, int? discovered})> _speciesStatsFuture;
   StreamSubscription<AuthState>? _authSubscription;
 
   @override
@@ -39,12 +39,17 @@ class _HomeScreenState extends State<HomeScreen> {
       if (!mounted) return;
       if (state.event == AuthChangeEvent.signedOut ||
           _authService.currentUser == null) {
-        setState(() => _imageUrl = null);
+        setState(() {
+          _imageUrl = null;
+          _speciesStatsFuture = _loadSpeciesStats();
+        });
       } else if (state.event == AuthChangeEvent.signedIn) {
+        setState(() => _speciesStatsFuture = _loadSpeciesStats());
         _loadProfileImage();
       }
     });
     _factsFuture = _speciesService.getAllSpeciesFacts();
+    _speciesStatsFuture = _loadSpeciesStats();
     _loadProfileImage();
   }
 
@@ -67,8 +72,23 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _refreshHome() async {
     setState(() {
       _factsFuture = _speciesService.getAllSpeciesFacts();
+      _speciesStatsFuture = _loadSpeciesStats();
     });
-    await Future.wait([_loadProfileImage(), _factsFuture]);
+    await Future.wait([_loadProfileImage(), _factsFuture, _speciesStatsFuture]);
+  }
+
+  Future<({int total, int? discovered})> _loadSpeciesStats() async {
+    final species = await _speciesService.getAllSpecies();
+    final userId = _authService.currentUser?.id;
+    if (userId == null) {
+      return (total: species.length, discovered: null);
+    }
+
+    final discovered = await _speciesService.getDiscoveredSpecies(userId);
+    return (
+      total: species.length,
+      discovered: discovered.length.clamp(0, species.length),
+    );
   }
 
   void _openTrivia(BuildContext context) {
@@ -96,11 +116,13 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildExploreSectionHeader(BuildContext context) {
+    final palette = context.palette;
     return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
+        Icon(Icons.sports_esports_rounded, color: palette.primary, size: 25),
+        const SizedBox(width: 9),
         Text(
-          AppTexts.exploreSectionTitle,
+          'Minijuegos',
           style: AppTheme.headingStyle(context)
               .copyWith(fontWeight: FontWeight.w800),
         ),
@@ -111,45 +133,150 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: SafeArea(
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(10, 5, 10, 5),
-              child: _HomeHeader(
-                imageUrl: _imageUrl,
-                onProfileTap: widget.onProfileTap,
-                onAchievementsTap: () => _openAchievements(context),
-                onSettingsTap: () => _openSettings(context),
-              ),
-            ),
-            Expanded(
-              child: RefreshIndicator(
-                onRefresh: _refreshHome,
-                color: context.palette.primary,
-                child: CustomScrollView(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  slivers: [
-                    SliverPadding(
-                      padding: const EdgeInsets.fromLTRB(22, 0, 22, 32),
-                      sliver: SliverList(
-                        delegate: SliverChildListDelegate([
-                          const SizedBox(height: 8),
-                          _FactsCarousel(factsFuture: _factsFuture),
-                          const SizedBox(height: 32),
-                          _buildExploreSectionHeader(context),
-                          const SizedBox(height: 16),
-                          _ExploreGridSection(
-                            onTriviaTap: () => _openTrivia(context),
-                          ),
-                        ]),
-                      ),
-                    ),
-                  ],
+      body: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              context.palette.primarySoft.withValues(alpha: 0.55),
+              context.palette.background,
+              context.palette.background,
+            ],
+            stops: const [0, 0.34, 1],
+          ),
+        ),
+        child: SafeArea(
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 8, 18, 12),
+                child: _HomeHeader(
+                  imageUrl: _imageUrl,
+                  onProfileTap: widget.onProfileTap,
+                  onAchievementsTap: () => _openAchievements(context),
+                  onSettingsTap: () => _openSettings(context),
                 ),
               ),
-            ),
-          ],
+              Expanded(
+                child: RefreshIndicator(
+                  onRefresh: _refreshHome,
+                  color: context.palette.primary,
+                  child: CustomScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    slivers: [
+                      SliverPadding(
+                        padding: const EdgeInsets.fromLTRB(20, 0, 20, 32),
+                        sliver: SliverList(
+                          delegate: SliverChildListDelegate([
+                            _CollectionSummary(
+                              statsFuture: _speciesStatsFuture,
+                              onTap: () => widget.onNavigate?.call(2),
+                            ),
+                            const SizedBox(height: 18),
+                            _FactsCarousel(factsFuture: _factsFuture),
+                            const SizedBox(height: 26),
+                            _buildExploreSectionHeader(context),
+                            const SizedBox(height: 12),
+                            _ExploreGridSection(
+                              onTriviaTap: () => _openTrivia(context),
+                            ),
+                          ]),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CollectionSummary extends StatelessWidget {
+  final Future<({int total, int? discovered})> statsFuture;
+  final VoidCallback onTap;
+
+  const _CollectionSummary({required this.statsFuture, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.palette;
+    return Material(
+      color: palette.surface.withValues(alpha: 0.86),
+      borderRadius: BorderRadius.circular(22),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(22),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 17, vertical: 14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: palette.border.withValues(alpha: 0.8)),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: FutureBuilder(
+                  future: statsFuture,
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return Text(
+                        'Cargando colección...',
+                        style: AppTheme.bodyStyle(context),
+                      );
+                    }
+                    if (snapshot.hasError || !snapshot.hasData) {
+                      return Text(
+                        'Explora la colección de especies',
+                        style: AppTheme.bodyStyle(context),
+                      );
+                    }
+
+                    final stats = snapshot.data!;
+                    final discovered = stats.discovered;
+                    if (discovered == null) {
+                      return Text(
+                        '${stats.total} especies para descubrir',
+                        style: TextStyle(
+                          color: palette.textPrimary,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      );
+                    }
+
+                    return Text.rich(
+                      TextSpan(
+                        style: TextStyle(
+                          color: palette.textPrimary,
+                          fontSize: 14,
+                        ),
+                        children: [
+                          TextSpan(
+                            text: '$discovered especies descubiertas',
+                            style: const TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                          const TextSpan(text: '   •   '),
+                          TextSpan(
+                            text: '${stats.total - discovered} por descubrir',
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                        ],
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(width: 8),
+              Icon(Icons.chevron_right_rounded, color: palette.primary),
+            ],
+          ),
         ),
       ),
     );
@@ -181,49 +308,79 @@ class _HomeHeader extends StatelessWidget {
           child: GestureDetector(
             onTap: onProfileTap,
             child: Container(
-              width: 48,
-              height: 48,
+              width: 54,
+              height: 54,
               clipBehavior: Clip.antiAlias,
               decoration: BoxDecoration(
-                color: palette.primarySoft,
+                color: palette.surface,
                 shape: BoxShape.circle,
+                border: Border.all(color: palette.surface, width: 3),
+                boxShadow: [
+                  BoxShadow(
+                    color: palette.textPrimary.withValues(alpha: 0.12),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
               ),
               child: imageUrl == null
-                  ? Icon(Icons.person_rounded, color: palette.primary, size: 27)
-                  : Image.network(
-                      imageUrl!,
-                      fit: BoxFit.cover,
-                      cacheWidth: (48 * MediaQuery.devicePixelRatioOf(context))
-                          .round(),
-                      cacheHeight: (48 * MediaQuery.devicePixelRatioOf(context))
-                          .round(),
-                      errorBuilder: (context, error, stackTrace) => Icon(
-                        Icons.person_rounded,
-                        color: palette.primary,
-                        size: 27,
+                  ? Icon(Icons.person_rounded, color: palette.primary, size: 30)
+                  : Transform.scale(
+                      scale: 1.12,
+                      child: Image.network(
+                        imageUrl!,
+                        fit: BoxFit.cover,
+                        cacheWidth:
+                            (60 * MediaQuery.devicePixelRatioOf(context))
+                                .round(),
+                        cacheHeight:
+                            (60 * MediaQuery.devicePixelRatioOf(context))
+                                .round(),
+                        errorBuilder: (context, error, stackTrace) => Icon(
+                          Icons.person_rounded,
+                          color: palette.primary,
+                          size: 30,
+                        ),
                       ),
                     ),
             ),
           ),
         ),
-        const SizedBox(width: 6),
-        ElevatedButton(
-          onPressed: onAchievementsTap,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: palette.background,
-            foregroundColor: palette.textPrimary,
-            overlayColor: Colors.transparent,
-            side: BorderSide(color: palette.border, width: 1.4),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(40))
+        const SizedBox(width: 12),
+        Material(
+          color: palette.surface.withValues(alpha: 0.8),
+          borderRadius: BorderRadius.circular(30),
+          child: InkWell(
+            onTap: onAchievementsTap,
+            borderRadius: BorderRadius.circular(30),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.emoji_events_rounded, color: palette.primary),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Logros',
+                    style: TextStyle(
+                      color: palette.textPrimary,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
-          child:
-            const Text("Logros"),
         ),
         const Spacer(),
-        IconButton(
-          onPressed: onSettingsTap,
-          tooltip: 'Configuración',
-          icon: Icon(Icons.settings_outlined, color: palette.textSecondary),
+        Material(
+          color: palette.surface.withValues(alpha: 0.8),
+          shape: const CircleBorder(),
+          child: IconButton(
+            onPressed: onSettingsTap,
+            tooltip: 'Configuración',
+            icon: Icon(Icons.settings_rounded, color: palette.textPrimary),
+          ),
         ),
       ],
     );
@@ -256,7 +413,7 @@ class _FactsCarouselState extends State<_FactsCarousel> {
   void initState() {
     super.initState();
     _loadFacts();
-    _rotationTimer = Timer.periodic(const Duration(seconds: 6), (_) {
+    _rotationTimer = Timer.periodic(const Duration(seconds: 7), (_) {
       if (!_pageController.hasClients) return;
 
       final nextPage = (_pageController.page ?? _initialPage).round() + 1;
@@ -293,7 +450,9 @@ class _FactsCarouselState extends State<_FactsCarousel> {
     final available = _facts
         .where((fact) => !_recentFactIds.contains(fact.id))
         .toList();
-    final pool = available.isEmpty ? List<SpeciesFactModel>.from(_facts) : available;
+    final pool = available.isEmpty
+        ? List<SpeciesFactModel>.from(_facts)
+        : available;
     pool.shuffle();
     final selected = pool.first;
 
@@ -337,7 +496,7 @@ class _FactsCarouselState extends State<_FactsCarousel> {
 
     if (_isLoadingFacts) {
       return const SizedBox(
-        height: 142,
+        height: 280,
         child: Center(child: CircularProgressIndicator()),
       );
     }
@@ -364,78 +523,141 @@ class _FactsCarouselState extends State<_FactsCarousel> {
     return Column(
       children: [
         SizedBox(
-          height: 142,
+          height: 280,
           child: PageView.builder(
             controller: _pageController,
-            onPageChanged: (page) {},
             itemBuilder: (context, index) {
               final fact = _factForPage(index);
-
               return Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 2),
-                child: Container(
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    color: palette.primary,
-                    borderRadius: BorderRadius.circular(AppTheme.cardRadius),
-                  ),
-                  child: Row(
-                    children: [
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.baseline,
-                              textBaseline: TextBaseline.alphabetic,
-                              children: [
-                                Flexible(
-                                  child: Text(
-                                    fact.speciesName ?? 'Dato curioso',
-                                    overflow: TextOverflow.ellipsis,
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .titleLarge
-                                        ?.copyWith(
-                                          color: palette.cameraForeground,
-                                          fontWeight: FontWeight.w800,
-                                        ),
-                                  ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(28),
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          palette.primarySoft,
+                          Color.lerp(
+                            palette.primarySoft,
+                            palette.surface,
+                            0.35,
+                          )!,
+                          palette.surfaceMuted,
+                        ],
+                        stops: const [0, 0.52, 1],
+                      ),
+                      border: Border.all(
+                        color: palette.primary.withValues(alpha: 0.22),
+                      ),
+                    ),
+                    child: Stack(
+                      children: [
+                        Positioned(
+                          top: -68,
+                          right: -42,
+                          child: _GradientDecoration(
+                            size: 250,
+                            color: palette.primary.withValues(alpha: 0.2),
+                          ),
+                        ),
+                        Positioned(
+                          bottom: -105,
+                          left: -52,
+                          child: _GradientDecoration(
+                            size: 270,
+                            color: palette.primary.withValues(alpha: 0.16),
+                          ),
+                        ),
+                        Positioned(
+                          top: 62,
+                          left: 120,
+                          child: _GradientDecoration(
+                            size: 185,
+                            color: palette.primary.withValues(alpha: 0.1),
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.all(22),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 8,
                                 ),
-                                if (fact.scientificName != null &&
-                                    fact.scientificName!.trim().isNotEmpty) ...[
-                                  const SizedBox(width: 8),
-                                  Flexible(
-                                    child: Text(
-                                      fact.scientificName!,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: AppTheme.bodyStyle(context)
-                                          .copyWith(
-                                            color: palette.cameraForeground
-                                                .withValues(alpha: 0.62),
-                                            fontSize: 12,
-                                            fontStyle: FontStyle.italic,
-                                          ),
-                                    ),
+                                decoration: BoxDecoration(
+                                  color: palette.surface.withValues(
+                                    alpha: 0.72,
                                   ),
-                                ],
-                              ],
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              fact.fact,
-                              style: AppTheme.bodyStyle(context).copyWith(
-                                color: palette.cameraForeground.withValues(
-                                  alpha: 0.9,
+                                  borderRadius: BorderRadius.circular(22),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.lightbulb_rounded,
+                                      color: palette.primary,
+                                      size: 18,
+                                    ),
+                                    const SizedBox(width: 7),
+                                    Text(
+                                      'DATO CURIOSO',
+                                      style: TextStyle(
+                                        color: palette.primary,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w800,
+                                        letterSpacing: 0.8,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
-                            ),
-                          ],
+                              const Spacer(),
+                              Text(
+                                fact.speciesName ?? 'Fauna silvestre',
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: palette.textPrimary,
+                                  fontSize: 25,
+                                  height: 1.1,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              if (fact.scientificName != null &&
+                                  fact.scientificName!.trim().isNotEmpty) ...[
+                                const SizedBox(height: 4),
+                                Text(
+                                  fact.scientificName!,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: palette.textSecondary,
+                                    fontSize: 13,
+                                    fontStyle: FontStyle.italic,
+                                  ),
+                                ),
+                              ],
+                              const SizedBox(height: 12),
+                              Text(
+                                fact.fact,
+                                maxLines: 4,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: palette.textPrimary,
+                                  fontSize: 15,
+                                  height: 1.4,
+                                ),
+                              ),
+                              const Spacer(),
+                            ],
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               );
@@ -443,6 +665,27 @@ class _FactsCarouselState extends State<_FactsCarousel> {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _GradientDecoration extends StatelessWidget {
+  final double size;
+  final Color color;
+
+  const _GradientDecoration({required this.size, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: RadialGradient(colors: [color, color.withValues(alpha: 0)]),
+        ),
+      ),
     );
   }
 }
@@ -456,7 +699,7 @@ class _FactsMessage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 142,
+      height: 280,
       child: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -464,10 +707,7 @@ class _FactsMessage extends StatelessWidget {
             Text(message, textAlign: TextAlign.center),
             if (onRetry != null) ...[
               const SizedBox(height: 8),
-              TextButton(
-                onPressed: onRetry,
-                child: const Text('Reintentar'),
-              ),
+              TextButton(onPressed: onRetry, child: const Text('Reintentar')),
             ],
           ],
         ),
@@ -532,8 +772,8 @@ class _ExploreGridSection extends StatelessWidget {
     ];
 
     final double screenWidth = MediaQuery.of(context).size.width;
-    final double cellWidth = (screenWidth - 44 - 14) / 2;
-    final double gridHeight = 2 * (cellWidth / 0.88) + 14;
+    final double cellWidth = (screenWidth - 40 - 12) / 2;
+    final double gridHeight = 2 * (cellWidth / 1.25) + 14;
 
     return SizedBox(
       height: gridHeight,
@@ -544,7 +784,7 @@ class _ExploreGridSection extends StatelessWidget {
           crossAxisCount: 2,
           crossAxisSpacing: 14,
           mainAxisSpacing: 14,
-          childAspectRatio: 0.88,
+          childAspectRatio: 1.25,
         ),
         itemCount: games.length,
         itemBuilder: (context, index) {
@@ -582,9 +822,16 @@ class _ExploreGameCard extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(AppTheme.cardRadius),
-        child: Container(
-          padding: const EdgeInsets.all(16),
+        child: Ink(
           decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                palette.primarySoft.withValues(alpha: isAvailable ? 0.9 : 0.6),
+                palette.surface,
+              ],
+            ),
             borderRadius: BorderRadius.circular(AppTheme.cardRadius),
             border: Border.all(
               color: isAvailable
@@ -592,70 +839,54 @@ class _ExploreGameCard extends StatelessWidget {
                   : palette.border,
             ),
           ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: isAvailable ? palette.primary : palette.primarySoft,
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Icon(
-                  game.icon,
-                  color: isAvailable
-                      ? palette.cameraForeground
-                      : palette.primary.withValues(alpha: 0.5),
-                  size: 28,
-                ),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                game.title,
-                style: Theme.of(context).textTheme.titleMedium
-                    ?.copyWith(fontWeight: FontWeight.w800),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              const SizedBox(height: 6),
-              Text(
-                game.description,
-                style: AppTheme.bodyStyle(
-                  context,
-                ).copyWith(color: palette.textSecondary.withValues(alpha: 0.8)),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  if (isAvailable)
-                    Icon(
-                      Icons.arrow_forward_rounded,
-                      color: palette.primary,
-                      size: 20,
-                    )
-                  else
-                    Icon(
-                      Icons.lock_rounded,
-                      color: palette.textSecondary,
-                      size: 20,
-                    ),
-                  const SizedBox(width: 8),
-                  if (!isAvailable)
-                    Text(
-                      AppTexts.exploreSectionLocked,
-                      style: TextStyle(
-                        color: palette.textSecondary,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
+          child: Padding(
+            padding: const EdgeInsets.all(13),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: palette.surface.withValues(alpha: 0.78),
+                        borderRadius: BorderRadius.circular(13),
                       ),
+                      child: Icon(game.icon, color: palette.primary, size: 24),
                     ),
-                ],
-              ),
-            ],
+                    const Spacer(),
+                    Icon(
+                      isAvailable
+                          ? Icons.arrow_forward_rounded
+                          : Icons.lock_rounded,
+                      color: isAvailable
+                          ? palette.primary
+                          : palette.textSecondary,
+                      size: 19,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  game.title,
+                  style: Theme.of(context).textTheme.titleSmall
+                      ?.copyWith(fontWeight: FontWeight.w800),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  game.description,
+                  style: AppTheme.bodyStyle(context).copyWith(
+                    color: palette.textSecondary.withValues(alpha: 0.9),
+                    fontSize: 12,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
           ),
         ),
       ),

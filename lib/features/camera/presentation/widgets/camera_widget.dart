@@ -6,8 +6,6 @@ import 'package:flutter/material.dart';
 import 'dart:io';
 
 import 'package:permission_handler/permission_handler.dart';
-import 'package:image/image.dart' as img;
-import 'package:path_provider/path_provider.dart';
 
 /// Widget que gestiona la cámara del dispositivo y la captura de imágenes.
 
@@ -253,13 +251,12 @@ class _CameraWidgetState extends State<CameraWidget>
     }
   }
 
-  /// Captura una imagen de la cámara, la comprime y la pasa al callback.
+  /// Captura una imagen de la cámara y la pasa al callback sin modificarla.
   ///
   /// El método:
   /// 1. Verifica que no este tomando una foto ya.
   /// 2. Crea una foto con el controlador de cámara.
-  /// 3. Comprime la imagen a un tamaño manejable (1280px ancho).
-  /// 4. Llama al callback onImageCaptured con la imagen comprimida.
+  /// 3. Llama al callback onImageCaptured con la imagen original.
   /// 5. Libera el controlador de cámara para liberar recursos.
   /// 6. Si se configuro reinicio automatico, inicializa la cámara nuevamente.
   Future<void> takePicture() async {
@@ -271,30 +268,25 @@ class _CameraWidgetState extends State<CameraWidget>
 
     setState(() => _isTakingPicture = true);
     var shouldRestartCamera = false;
-    XFile? sourceImage;
-    XFile? compressedImage;
 
     try {
-      sourceImage = await controller.takePicture();
-      await Future.delayed(const Duration(milliseconds: 100));
-
-      compressedImage = await _compressImage(sourceImage);
-      debugPrint('Captured compressed path: ${compressedImage.path}');
+      final image = await controller.takePicture();
+      debugPrint(
+        '[Camera] Foto tomada: ${image.path}, '
+        'archivo=${await image.length()} bytes',
+      );
+      debugPrint('[Camera] Imagen original enviada a análisis: ${image.path}');
       if (mounted && !_isDisposed && _controller == controller) {
         _isProcessingImage = true;
         shouldRestartCamera = true;
         await _disposeCamera();
         if (mounted && !_isDisposed) {
-          await widget.onImageCaptured(File(compressedImage.path));
+          await widget.onImageCaptured(File(image.path));
         }
       }
     } catch (error) {
       debugPrint('CameraWidget: error capturando la foto: $error');
     } finally {
-      if (compressedImage != null &&
-          compressedImage.path != sourceImage?.path) {
-        await _deleteTemporaryFile(File(compressedImage.path));
-      }
       if (mounted) {
         setState(() => _isTakingPicture = false);
       }
@@ -306,47 +298,6 @@ class _CameraWidgetState extends State<CameraWidget>
           _isAppActive) {
         await _initCamera();
       }
-    }
-  }
-
-  /// Comprime una imagen a un tamaño manejable (maximo 1280px de ancho).
-  ///
-  /// Retorna un XFile con la imagen comprimida en formato JPEG.
-  ///
-  /// Cada imagen se guarda en un archivo temporal con un nombre unico
-  /// basado en el timestamp para evitar conflictos.
-  Future<XFile> _compressImage(XFile image) async {
-    final bytes = await image.readAsBytes();
-    final decoded = img.decodeImage(bytes);
-    if (decoded == null) {
-      return image; // fallback a imagen original
-    }
-
-    final oriented = img.bakeOrientation(decoded);
-    final compressed = img.copyResize(oriented, width: 1280);
-
-    final tempDir = await getTemporaryDirectory();
-    final path =
-        '${tempDir.path}/compressed_${DateTime.now().millisecondsSinceEpoch}.jpg';
-
-    final outFile = File(path);
-    try {
-      await outFile.writeAsBytes(img.encodeJpg(compressed, quality: 85));
-      return XFile(path);
-    } catch (_) {
-      await _deleteTemporaryFile(outFile);
-      rethrow;
-    }
-  }
-
-  Future<void> _deleteTemporaryFile(File file) async {
-    try {
-      if (await file.exists()) await file.delete();
-    } on FileSystemException catch (error) {
-      debugPrint(
-        'CameraWidget: no se pudo eliminar el archivo temporal '
-        '${file.path}: $error',
-      );
     }
   }
 
@@ -476,7 +427,7 @@ class _CameraWidgetState extends State<CameraWidget>
   Widget build(BuildContext context) {
     if (_hasError) return _buildError();
     if (!_isReady || _controller == null || !_controller!.value.isInitialized) {
-      return _buildLoading();
+      return const SizedBox.expand();
     }
 
     return Stack(
@@ -559,8 +510,6 @@ class _CameraWidgetState extends State<CameraWidget>
       ],
     );
   }
-
-  Widget _buildLoading() => const Center(child: CircularProgressIndicator());
 
   Widget _buildError() => Center(
     child: Padding(

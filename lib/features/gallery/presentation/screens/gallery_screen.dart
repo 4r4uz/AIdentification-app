@@ -25,13 +25,11 @@ class _GalleryScreenState extends State<GalleryScreen> {
   final _speciesService = ServiceLocator.species;
 
   List<SpeciesModel> _species = [];
-  List<SpeciesModel> _filteredSpecies = [];
   Set<int> _discoveredSpeciesIds = <int>{};
   bool _isLoading = false;
   bool _hasLoaded = false;
   bool _isFetching = false;
   String? _loadError;
-  String _selectedFilter = 'Todos';
 
   @override
   void initState() {
@@ -44,7 +42,8 @@ class _GalleryScreenState extends State<GalleryScreen> {
   @override
   void didUpdateWidget(covariant GalleryScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    final shouldReload = widget.isActive &&
+    final shouldReload =
+        widget.isActive &&
         (!oldWidget.isActive ||
             oldWidget.isAuthenticated != widget.isAuthenticated);
 
@@ -66,7 +65,9 @@ class _GalleryScreenState extends State<GalleryScreen> {
     setState(() => _loadError = null);
 
     try {
-      final userId = widget.isAuthenticated ? _authService.currentUser?.id : null;
+      final userId = widget.isAuthenticated
+          ? _authService.currentUser?.id
+          : null;
       final results = await Future.wait<List<SpeciesModel>>([
         _speciesService.getAllSpecies(),
         if (userId != null) _speciesService.getDiscoveredSpecies(userId),
@@ -92,7 +93,6 @@ class _GalleryScreenState extends State<GalleryScreen> {
 
       setState(() {
         _species = speciesList;
-        _filteredSpecies = _applyFilter(speciesList, _selectedFilter);
         _discoveredSpeciesIds = discoveredIds;
         _hasLoaded = true;
         _isLoading = false;
@@ -111,26 +111,12 @@ class _GalleryScreenState extends State<GalleryScreen> {
     }
   }
 
-  List<SpeciesModel> _applyFilter(List<SpeciesModel> list, String filter) {
-    if (filter == 'Todos') return list;
-    return list.where((species) {
-      final rarity = species.rarity.toLowerCase();
-      return rarity == filter.toLowerCase();
-    }).toList();
-  }
-
-  void _filterByRarity(String rarity) {
-    setState(() {
-      _selectedFilter = rarity;
-      _filteredSpecies = _applyFilter(_species, rarity);
-    });
-  }
-
   bool _isSpeciesUnlocked(SpeciesModel species) {
     return _discoveredSpeciesIds.contains(species.id);
   }
 
   void _openSpeciesDetails(SpeciesModel species) {
+    final isUnlocked = _isSpeciesUnlocked(species);
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -164,6 +150,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
                     width: 52,
                     height: 52,
                     borderRadius: 18,
+                    silhouette: !isUnlocked,
                   ),
                   const SizedBox(width: 14),
                   Expanded(
@@ -194,22 +181,18 @@ class _GalleryScreenState extends State<GalleryScreen> {
               ),
               const SizedBox(height: 18),
               Text(
-                _isSpeciesUnlocked(species)
-                    ? 'Especie descubierta'
-                    : 'Especie bloqueada',
+                isUnlocked ? 'Especie descubierta' : 'Especie bloqueada',
                 style: TextStyle(
-                  color: _isSpeciesUnlocked(species)
+                  color: isUnlocked
                       ? context.palette.success
                       : context.palette.textSecondary,
                   fontWeight: FontWeight.w700,
                 ),
               ),
               const SizedBox(height: 12),
-              if (species.description != null && species.description!.trim().isNotEmpty)
-                Text(
-                  species.description!,
-                  style: AppTheme.bodyStyle(context),
-                )
+              if (species.description != null &&
+                  species.description!.trim().isNotEmpty)
+                Text(species.description!, style: AppTheme.bodyStyle(context))
               else
                 Text(
                   'Aún no hay descripción detallada disponible para esta especie.',
@@ -231,71 +214,87 @@ class _GalleryScreenState extends State<GalleryScreen> {
       children: [
         Scaffold(
           appBar: AppBar(
-            title: const Text('Colección de especies'),
+            title: const Text('Colección'),
+            backgroundColor: context.palette.primarySoft,
           ),
           body: RefreshIndicator(
             onRefresh: _loadSpecies,
             color: context.palette.primary,
-            child: CustomScrollView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              slivers: [
-                SliverToBoxAdapter(child: _buildFilterChips()),
-                if (_isLoading)
-                  SliverPadding(
-                    padding: const EdgeInsets.all(16),
-                    sliver: SliverGrid(
-                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 2,
-                        crossAxisSpacing: 12,
-                        mainAxisSpacing: 12,
-                        childAspectRatio: 0.84,
-                      ),
-                      delegate: SliverChildBuilderDelegate(
-                        (context, index) => const _SpeciesCardSkeleton(),
-                        childCount: 6,
-                      ),
-                    ),
-                  )
-                else if (_loadError != null && _species.isEmpty)
-                  SliverFillRemaining(
-                    hasScrollBody: false,
-                    child: EmptyStateWidget(
-                      icon: Icons.cloud_off_outlined,
-                      title: 'No se pudo cargar la galería',
-                      message: _loadError,
-                      buttonText: 'Reintentar',
-                      onButtonPressed: _loadSpecies,
-                    ),
-                  )
-                else if (_filteredSpecies.isEmpty)
-                  const SliverFillRemaining(
-                    hasScrollBody: false,
-                    child: EmptyStateWidget(
-                      icon: Icons.forest_outlined,
-                      title: 'No se encontraron especies',
-                    ),
-                  )
-                else
-                  SliverPadding(
-                    padding: const EdgeInsets.all(16),
-                    sliver: SliverGrid(
-                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 2,
-                        crossAxisSpacing: 12,
-                        mainAxisSpacing: 12,
-                        childAspectRatio: 0.82,
-                      ),
-                      delegate: SliverChildBuilderDelegate(
-                        (context, index) => _SpeciesCard(
-                          species: _filteredSpecies[index],
-                          isUnlocked: _isSpeciesUnlocked(_filteredSpecies[index]),
-                          onTap: () => _openSpeciesDetails(_filteredSpecies[index]),
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    context.palette.primarySoft.withValues(alpha: 0.42),
+                    context.palette.background,
+                    context.palette.background,
+                  ],
+                  stops: const [0, 0.3, 1],
+                ),
+              ),
+              child: CustomScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                slivers: [
+                  if (_isLoading)
+                    SliverPadding(
+                      padding: const EdgeInsets.all(16),
+                      sliver: SliverGrid(
+                        gridDelegate:
+                            const SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: 2,
+                              mainAxisExtent: 230,
+                              crossAxisSpacing: 14,
+                              mainAxisSpacing: 16,
+                            ),
+                        delegate: SliverChildBuilderDelegate(
+                          (context, index) => const _SpeciesCardSkeleton(),
+                          childCount: 6,
                         ),
-                        childCount: _filteredSpecies.length,
+                      ),
+                    )
+                  else if (_loadError != null && _species.isEmpty)
+                    SliverFillRemaining(
+                      hasScrollBody: false,
+                      child: EmptyStateWidget(
+                        icon: Icons.cloud_off_outlined,
+                        title: 'No se pudo cargar la galería',
+                        message: _loadError,
+                        buttonText: 'Reintentar',
+                        onButtonPressed: _loadSpecies,
+                      ),
+                    )
+                  else if (_species.isEmpty)
+                    const SliverFillRemaining(
+                      hasScrollBody: false,
+                      child: EmptyStateWidget(
+                        icon: Icons.forest_outlined,
+                        title: 'No se encontraron especies',
+                      ),
+                    )
+                  else
+                    SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                      sliver: SliverGrid(
+                        gridDelegate:
+                            const SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: 2,
+                              mainAxisExtent: 230,
+                              crossAxisSpacing: 14,
+                              mainAxisSpacing: 16,
+                            ),
+                        delegate: SliverChildBuilderDelegate(
+                          (context, index) => _SpeciesCard(
+                            species: _species[index],
+                            isUnlocked: _isSpeciesUnlocked(_species[index]),
+                            onTap: () => _openSpeciesDetails(_species[index]),
+                          ),
+                          childCount: _species.length,
+                        ),
                       ),
                     ),
-                  ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -339,43 +338,6 @@ class _GalleryScreenState extends State<GalleryScreen> {
       ),
     );
   }
-
-  Widget _buildFilterChips() {
-    final filters = ['Todos', 'comun', 'raro', 'epico', 'legendario'];
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: filters.map((filter) {
-            final isSelected = _selectedFilter == filter;
-            return Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: FilterChip(
-                label: Text(
-                  filter == 'Todos' ? filter : filter.toUpperCase(),
-                  style: TextStyle(
-                    color: isSelected
-                        ? context.palette.primary
-                        : context.palette.textSecondary,
-                    fontWeight: isSelected ? FontWeight.w700 : FontWeight.normal,
-                  ),
-                ),
-                selected: isSelected,
-                onSelected: (selected) {
-                  if (selected) _filterByRarity(filter);
-                },
-                backgroundColor: context.palette.surface,
-                selectedColor: context.palette.primarySoft,
-                checkmarkColor: context.palette.primary,
-              ),
-            );
-          }).toList(),
-        ),
-      ),
-    );
-  }
 }
 
 class _SpeciesCardSkeleton extends StatelessWidget {
@@ -389,18 +351,18 @@ class _SpeciesCardSkeleton extends StatelessWidget {
         borderRadius: BorderRadius.circular(22),
         border: Border.all(color: context.palette.border),
       ),
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Align(
             alignment: Alignment.topRight,
-            child: SkeletonBlock(width: 28, height: 28, radius: 14),
+            child: SkeletonBlock(width: 24, height: 24, radius: 12),
           ),
           const Spacer(),
-          const SkeletonBlock(width: 90, height: 20),
+          const SkeletonBlock(width: 56, height: 20),
           const SizedBox(height: 8),
-          const SkeletonBlock(width: 70, height: 12),
+          const SkeletonBlock(width: 44, height: 12),
         ],
       ),
     );
@@ -462,51 +424,99 @@ class _SpeciesCard extends StatelessWidget {
     final palette = context.palette;
 
     return Material(
-      color: Colors.transparent,
+      color: isUnlocked ? palette.surface : palette.primarySoft,
+      elevation: 2,
+      shadowColor: palette.textPrimary.withValues(alpha: 0.08),
+      borderRadius: BorderRadius.circular(24),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(22),
+        borderRadius: BorderRadius.circular(24),
         child: Container(
-          padding: const EdgeInsets.all(12),
+          clipBehavior: Clip.antiAlias,
           decoration: BoxDecoration(
-            color: isUnlocked ? palette.surface : palette.surfaceMuted,
-            borderRadius: BorderRadius.circular(22),
-            border: Border.all(
-              color: isUnlocked ? palette.primarySoft : palette.border,
-            ),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: palette.border),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _SpeciesImage(
-                species: species,
-                width: double.infinity,
-                height: 120,
-                borderRadius: 16,
-                silhouette: !isUnlocked,
-              ),
-              const Spacer(),
-              Text(
-                species.nameCommon,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.left,
-                style: TextStyle(
-                  color: palette.textPrimary,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                  height: 1.2,
+              Padding(
+                padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
+                child: Container(
+                  height: 134,
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(2),
+                  decoration: BoxDecoration(
+                    color: palette.primary.withValues(alpha: 0.6),
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        _SpeciesImage(
+                          species: species,
+                          width: double.infinity,
+                          height: 130,
+                          borderRadius: 0,
+                          silhouette: !isUnlocked,
+                        ),
+                        if (isUnlocked)
+                          Positioned(
+                            top: 10,
+                            right: 10,
+                            child: Container(
+                              width: 30,
+                              height: 30,
+                              decoration: BoxDecoration(
+                                color: palette.surface.withValues(alpha: 0.92),
+                                shape: BoxShape.circle,
+                              ),
+                              child: Icon(
+                                Icons.eco_rounded,
+                                color: palette.primary,
+                                size: 17,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
-              const SizedBox(height: 4),
-              Text(
-                species.nameScientific ?? 'Especie sin nombre científico',
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: palette.textSecondary,
-                  fontSize: 11,
-                  fontStyle: FontStyle.italic,
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 9, 12, 10),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        species.nameCommon,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: palette.textPrimary,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                          height: 1.15,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        species.nameScientific ??
+                            'Especie sin nombre científico',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: palette.textSecondary,
+                          fontSize: 11,
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ],
@@ -544,33 +554,37 @@ class _SpeciesImage extends StatelessWidget {
         height: height,
         color: fallbackColor,
         child: imageUrl == null || imageUrl.isEmpty
-            ? Icon(
-                Icons.pets_rounded,
-                size: height >= 80 ? 42 : 24,
-                color: silhouette ? Colors.black : context.palette.primary,
-              )
+            ? const SizedBox.shrink()
             : ColorFiltered(
                 colorFilter: silhouette
                     ? const ColorFilter.matrix([
-                        0, 0, 0, 0, 0,
-                        0, 0, 0, 0, 0,
-                        0, 0, 0, 0, 0,
-                        0, 0, 0, 1, 0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        1,
+                        0,
                       ])
-                    : const ColorFilter.mode(
-                        Colors.transparent,
-                        BlendMode.dst,
-                      ),
+                    : const ColorFilter.mode(Colors.transparent, BlendMode.dst),
                 child: Image.network(
                   imageUrl,
                   fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) => Icon(
-                    Icons.pets_rounded,
-                    size: height >= 80 ? 42 : 24,
-                    color: silhouette
-                        ? Colors.black
-                        : context.palette.primary,
-                  ),
+                  errorBuilder: (context, error, stackTrace) =>
+                      const SizedBox.shrink(),
                   loadingBuilder: (context, child, loadingProgress) {
                     if (loadingProgress == null) return child;
                     return Center(
@@ -582,7 +596,7 @@ class _SpeciesImage extends StatelessWidget {
                           value: loadingProgress.expectedTotalBytes == null
                               ? null
                               : loadingProgress.cumulativeBytesLoaded /
-                                  loadingProgress.expectedTotalBytes!,
+                                    loadingProgress.expectedTotalBytes!,
                         ),
                       ),
                     );

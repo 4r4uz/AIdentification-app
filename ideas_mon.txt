@@ -1,0 +1,123 @@
+Aquí tienes una estrategia de monetización completa, justificada y adaptada a las funcionalidades actuales de tu app:
+
+🎯 Modelo recomendado: Freemium + Suscripción Premium
+Estructura de niveles
+Función	Gratis	Premium (Mensual)	Premium (Anual)
+Detecciones por día	5	Ilimitadas	Ilimitadas
+Guardar detección en galería	10 total	Ilimitadas	Ilimitadas
+Ver nombre científico y clasificación taxonómica	Básico	Completo	Completo
+Ver datos curiosos de especies	3 por día	Ilimitados	Ilimitados
+Historial de ubicaciones (mapa)	Última ubicación	Historial completo	Historial completo
+Filtros de galería por especie/fecha	Básico	Avanzado	Avanzado
+Modo sin conexión (últimas 20 especies)	❌	✅	✅
+Sincronización en múltiples dispositivos	❌	✅	✅
+Sin publicidad	❌	✅	✅
+Soporte prioritario	❌	✅	✅
+Exportar mis detecciones (CSV/PDF)	❌	❌	✅
+💰 Beneficios de la suscripción y por qué la gente pagaría
+1. Detecciones ilimitadas (el núcleo del valor)
+Beneficio: El usuario puede identificar tantos animales como quiera sin barreras artificiales.
+
+Justificación de pago:
+
+La IA (MegaDetector + SpeciesNet) tiene costo computacional. Cobrar por uso intensivo es razonable.
+Un naturalista, estudiante de biología o fotógrafo de naturaleza hará decenas de detecciones en una salida de campo. El límite gratuito de 5/día se agota rápido.
+Psicología: Una vez que el usuario se "engancha" identificando su primer animal, quiere seguir. El límite de 5 crea frustración justificada que motiva el pago.
+2. Galería ilimitada de detecciones (coleccionismo)
+Beneficio: Guardar cada identificación con foto, fecha, ubicación y nombre científico en su colección personal.
+
+Justificación de pago:
+
+El coleccionismo digital es un motivador poderoso (como Pokémon GO, pero real).
+Los usuarios quieren presumir sus descubrimientos en redes sociales.
+La versión gratuita permite solo 10 guardados totales. Eso es insuficiente para alguien que sale al campo una vez al mes.
+Valor percibido: Mi "enciclopedia personal de la naturaleza".
+3. Clasificación taxonómica completa (valor educativo)
+Beneficio: Ver no solo el nombre común, sino género, familia, orden, clase, nombre científico y datos curiosos.
+
+Justificación de pago:
+
+Estudiantes de biología, veterinaria o ecología necesitan esta información para tareas y estudio.
+El nombre común varía por región; el científico es universal. Eso tiene valor práctico.
+Los datos curiosos (hechos, hábitat, estado de conservación) hacen la experiencia educativa, no solo un "cuadro de identificación".
+4. Historial de ubicaciones y mapa de avistamientos
+Beneficio: Ver en un mapa dónde se detectó cada especie, con fechas y notas.
+
+Justificación de pago:
+
+Para turistas y excursionistas, es un "pasaporte de naturaleza" personal.
+Permite ver patrones: "He visto 5 especies de aves en este parque".
+Es un diario de campo digital. Esa organización personal justifica el pago.
+5. Modo sin conexión (últimas 20 especies)
+Beneficio: Identificar animales aunque no haya señal celular en el campo.
+
+Justificación de pago:
+
+Las zonas naturales suelen tener mala o nula cobertura.
+Un cazador, senderista o guardabosques necesita la app precisamente donde no hay internet.
+Esto es una característica de "utilidad crítica", no solo entretenimiento.
+6. Sincronización en múltiples dispositivos
+Beneficio: Mis detecciones en el celular y la tableta, con el mismo historial.
+
+Justificación de pago:
+
+Usuarios con iPad y Android, o que cambian de teléfono.
+Copia de seguridad en la nube: si pierden el teléfono, no pierden sus años de detecciones.
+7. Sin publicidad
+Beneficio: Experiencia limpia, sin interrupciones.
+
+Justificación de pago:
+
+En una app de naturaleza, los anuncios rompen la inmersión y la estética.
+Usuarios dispuestos a pagar por tranquilidad visual.
+8. Exportar detecciones (solo anual)
+Beneficio: Descargar CSV o PDF con todas sus detecciones para incluir en informes, tesis o portafolio.
+
+Justificación de pago:
+
+Profesionales (guías de turismo, biólogos, educadores) necesitan datos estructurados.
+Es una funcionalidad B2B/B2C ligera con alto valor percibido.
+💵 Precios sugeridos (ajustar por país)
+Plan	Precio (USD)	Precio (ARS/MXN/CLP estimado)
+Mensual	$3.99	ARS $4.000 / MXN $75 / CLP $3.800
+Anual	$29.99 (ahorro ~38%)	ARS $30.000 / MXN $550 / CLP $28.000
+Vitalicio (Oferta lanzada)	$49.99 una vez	ARS $50.000 / MXN $900 / CLP $48.000
+Estrategia de precios: El anual debería ser el plan recomendado (destacado visualmente) para mejorar el LTV (Lifetime Value) y reducir churn.
+
+🚀 Otras fuentes de monetización (además de suscripción)
+A. Compra única: Paquetes de regiones
+Vender paquetes de especies por bioma o país:
+
+"Paquete Selva Amazónica" – $2.99
+"Paquete Aves de Norteamérica" – $3.99
+"Paquete Mar de Cortés" – $2.99
+Justificación: Algunos usuarios solo quieren identificar animales de una zona específica y no quieren suscripción.
+
+B. Compras dentro de la app: Filtros y temas visuales
+Tema oscuro, tema bosque, tema océano – $1.99 cada uno.
+Filtros de cámara (marco de cazador, marco de científico) – $0.99.
+C. Afiliación con ecoturismo y ONGs
+Al identificar una especie en peligro, ofrecer donar $1 a una ONG de conservación (la app se queda con una comisión de procesamiento).
+Recomendar tours de avistamiento de aves o safaris fotográficos locales con enlace de afiliado.
+D. API para desarrolladores (B2B)
+Si la app tiene éxito, vender acceso a la API de identificación para guías de turismo, apps de parques nacionales o instituciones educativas.
+
+📈 Métricas de éxito a monitorear
+Métrica	Objetivo inicial	Qué indica
+Tasa de conversión Gratis → Premium	3-5%	El valor premium es claro
+Retención a 30 días	25-35%	La utilidad sigue vigente
+LTV (Valor de vida del cliente)	$25-$40	Sostenibilidad del modelo
+Costo de adquisición (CAC)	< $10	Rentabilidad de marketing
+🛠️ Implementación rápida (qué necesitas agregar)
+Supabase: Ya lo tienes. Solo necesitas agregar tablas subscriptions, user_profiles (plan, fecha expiración) y detection_limits (contador diario).
+Pagos: Integra RevenueCat o las SDK nativas de Google Play Billing / Apple App Store Purchase.
+Middleware: Agregar un verificador de suscripción en cada pantalla que use funciones premium (ej. _loadSpecies(), takePicture()).
+Onboarding: Mostrar el valor premium tras la primera detección exitosa ("¡Identificaste tu primer animal! Desbloquea ilimitadas por $3.99/mes").
+🎯 Mi recomendación personalizada para tu app
+Dado que ya tienes IA local (ONNX), Supabase y una galería funcional, el camino más rápido y menos riesgoso es:
+
+Lanzar con versión gratuita limitada (5 detecciones/día, 10 guardados totales).
+Suscripción Premium anual destacada a $29.99 USD.
+Añadir "Paquetes de regiones" como compra única para monetizar usuarios que no quieren suscripción.
+No poner publicidad intrusiva al inicio; mejor que la experiencia sea limpia para fomentar recomendaciones orgánicas.
+¿Te gustaría que te ayude a implementar el ServiceLocator ya creado con la lógica de verificación de suscripción, o prefieres diseñar primero las pantallas de pago?

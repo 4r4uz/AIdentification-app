@@ -1,24 +1,19 @@
-
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
 import 'package:flutter_onnxruntime/flutter_onnxruntime.dart';
 
 class LocalClassifierService {
-  static const String _modelAsset =
-      'assets/models/speciesnet_fp32.onnx';
+  static const String _modelAsset = 'assets/models/speciesnet_fp32.onnx';
 
-  static const String _labelsAsset =
-      'assets/models/labels.txt';
+  static const String _labelsAsset = 'assets/models/labels.txt';
 
   static const int _inputSize = 480;
 
-  static const double _speciesConfidenceThreshold = 0.8;
-  static const double _animalConfidenceThreshold = 0.65;
   static const double _rollupConfidenceThreshold = 0.65;
-  static const double _minimumDetectionAgreement = 0.2;
   static const double _minimumAnimalDetectionConfidence = 0.5;
 
   final OnnxRuntime _ort = OnnxRuntime();
@@ -55,8 +50,7 @@ class LocalClassifierService {
 
   Future<void> _initializeInternal() async {
     try {
-      final labelsContent =
-          await rootBundle.loadString(_labelsAsset);
+      final labelsContent = await rootBundle.loadString(_labelsAsset);
 
       _labels = labelsContent
           .split('\n')
@@ -107,33 +101,52 @@ class LocalClassifierService {
       throw Exception('Modelo local no inicializado');
     }
 
-    // Redimensionamiento de la imagen a 480x480.
+    debugPrint(
+      '[SpeciesNet] Inferencia iniciada con recorte '
+      '${image.width}x${image.height}; '
+      'confianza del detector=$detectionConfidence',
+    );
+    final scale = math.min(_inputSize / image.width, _inputSize / image.height);
+    final resizedWidth = (image.width * scale).round();
+    final resizedHeight = (image.height * scale).round();
+    debugPrint(
+      '[SpeciesNet] Preprocesamiento: recorte ${image.width}x${image.height}, '
+      'ajustado ${resizedWidth}x$resizedHeight dentro de '
+      '${_inputSize}x$_inputSize sin cambiar proporciones',
+    );
     final resized = img.copyResize(
       image,
+      width: resizedWidth,
+      height: resizedHeight,
+      interpolation: img.Interpolation.linear,
+    );
+    final inputImage = img.Image(
       width: _inputSize,
       height: _inputSize,
-      interpolation: img.Interpolation.linear,
+      numChannels: 3,
+    );
+    img.fill(inputImage, color: img.ColorRgb8(114, 114, 114));
+    img.compositeImage(
+      inputImage,
+      resized,
+      dstX: (_inputSize - resizedWidth) ~/ 2,
+      dstY: (_inputSize - resizedHeight) ~/ 2,
     );
 
     // Conversión RGB NHWC a Float32 [0, 1].
-    final input = _imageToFloat32(resized);
+    final input = _imageToFloat32(inputImage);
 
-    final inputTensor = await OrtValue.fromList(
-      input,
-      [
-        1,
-        _inputSize,
-        _inputSize,
-        3,
-      ],
-    );
+    final inputTensor = await OrtValue.fromList(input, [
+      1,
+      _inputSize,
+      _inputSize,
+      3,
+    ]);
 
     late final List<dynamic> logits;
 
     try {
-      final outputs = await _session!.run({
-        'input': inputTensor,
-      });
+      final outputs = await _session!.run({'input': inputTensor});
 
       try {
         // No asumir que la salida se llama "logits".
@@ -141,9 +154,7 @@ class LocalClassifierService {
         final logitsValue = outputs[outputName];
 
         if (logitsValue == null) {
-          throw Exception(
-            'No se encontró la salida ONNX: $outputName',
-          );
+          throw Exception('No se encontró la salida ONNX: $outputName');
         }
 
         logits = await logitsValue.asFlattenedList();
@@ -175,31 +186,36 @@ class LocalClassifierService {
       }
     }
 
-    final topLabelParts = _parseLabel(
-      _labels![topIndex],
-      topIndex,
-    );
+    final topLabelParts = _parseLabel(_labels![topIndex], topIndex);
 
     final topScore = scores[topIndex];
 
     // Clasificación directa de especie.
     if (_isAnimalLabel(topLabelParts) &&
-        (topScore > _speciesConfidenceThreshold ||
-            (topScore > _animalConfidenceThreshold &&
-                detectionConfidence > _minimumDetectionAgreement))) {
-      return _buildClassificationResult(
+        _isSpecificSpeciesLabel(topLabelParts)) {
+      final classification = _buildClassificationResult(
         topLabelParts[6],
         topScore,
         _labels![topIndex],
         'classifier',
       );
+      return {
+        ...classification,
+        'alternative_predictions': _topAlternativePredictions(
+          scores,
+          excludedIndex: topIndex,
+        ),
+      };
     }
 
     // Intentar identificar un nivel taxonómico superior.
     final rollup = _rollUpTaxonomy(scores);
 
     if (rollup != null) {
-      return rollup;
+      return {
+        ...rollup,
+        'alternative_predictions': _topAlternativePredictions(scores),
+      };
     }
 
     // El detector encontró un animal, pero SpeciesNet
@@ -230,10 +246,7 @@ class LocalClassifierService {
   // --------------------------------------------------
 
   List<String> _parseLabel(String label, int index) {
-    final parts = label
-        .split(';')
-        .map((part) => part.trim())
-        .toList();
+    final parts = label.split(';').map((part) => part.trim()).toList();
 
     if (parts.length < 7) {
       throw FormatException(
@@ -251,13 +264,20 @@ class LocalClassifierService {
     return parts
             .sublist(1, 6)
             .any(
-              (taxon) =>
-                  taxon.isNotEmpty &&
-                  taxon.toLowerCase() != 'unknown',
+              (taxon) => taxon.isNotEmpty && taxon.toLowerCase() != 'unknown',
             ) &&
         commonName != 'blank' &&
         commonName != 'human' &&
         commonName != 'vehicle';
+  }
+
+  bool _isSpecificSpeciesLabel(List<String> parts) {
+    final genus = parts[4].trim().toLowerCase();
+    final species = parts[5].trim().toLowerCase();
+    return genus.isNotEmpty &&
+        genus != 'unknown' &&
+        species.isNotEmpty &&
+        species != 'unknown';
   }
 
   Map<String, dynamic> _buildClassificationResult(
@@ -276,11 +296,54 @@ class LocalClassifierService {
     };
   }
 
+  List<Map<String, dynamic>> _topAlternativePredictions(
+    List<double> scores, {
+    int? excludedIndex,
+  }) {
+    final alternativesByScientificName = <String, Map<String, dynamic>>{};
+
+    for (var index = 0; index < scores.length; index++) {
+      if (index == excludedIndex) continue;
+
+      final parts = _parseLabel(_labels![index], index);
+      if (!_isAnimalLabel(parts)) continue;
+
+      final genus = parts[4].trim();
+      final species = parts[5].trim();
+      final commonName = parts[6].trim();
+      if (genus.isEmpty ||
+          species.isEmpty ||
+          commonName.isEmpty ||
+          species.toLowerCase() == 'unknown' ||
+          commonName.toLowerCase() == 'blank') {
+        continue;
+      }
+
+      final scientificName = '$genus $species';
+      final key = scientificName.toLowerCase();
+      final existing = alternativesByScientificName[key];
+      if (existing == null) {
+        alternativesByScientificName[key] = {
+          'name': commonName,
+          'scientific_name': scientificName,
+          'score': scores[index],
+        };
+      } else {
+        existing['score'] = (existing['score'] as double) + scores[index];
+      }
+    }
+
+    final alternatives = alternativesByScientificName.values.toList()
+      ..sort(
+        (first, second) =>
+            (second['score'] as double).compareTo(first['score'] as double),
+      );
+    return alternatives.take(3).toList();
+  }
+
   /// Acumula las probabilidades de las especies
   /// que pertenecen a un mismo grupo taxonómico.
-  Map<String, dynamic>? _rollUpTaxonomy(
-    List<double> scores,
-  ) {
+  Map<String, dynamic>? _rollUpTaxonomy(List<double> scores) {
     const rollupLevels = [
       ('genus', 4),
       ('family', 3),
@@ -298,12 +361,9 @@ class LocalClassifierService {
 
         if (!_isAnimalLabel(parts)) continue;
 
-        final taxon = rankIndex == 0
-            ? 'Animalia'
-            : parts[rankIndex];
+        final taxon = rankIndex == 0 ? 'Animalia' : parts[rankIndex];
 
-        if (taxon.isEmpty ||
-            taxon.toLowerCase() == 'unknown') {
+        if (taxon.isEmpty || taxon.toLowerCase() == 'unknown') {
           continue;
         }
 
@@ -313,19 +373,13 @@ class LocalClassifierService {
           ifAbsent: () => scores[index],
         );
 
-        representatives.putIfAbsent(
-          taxon,
-          () => parts,
-        );
+        representatives.putIfAbsent(taxon, () => parts);
       }
 
       if (accumulatedScores.isEmpty) continue;
 
       final bestTaxon = accumulatedScores.entries.reduce(
-        (best, candidate) =>
-            candidate.value > best.value
-                ? candidate
-                : best,
+        (best, candidate) => candidate.value > best.value ? candidate : best,
       );
 
       if (bestTaxon.value <= _rollupConfidenceThreshold) {
@@ -339,11 +393,7 @@ class LocalClassifierService {
       predictionParts[rankIndex] = bestTaxon.key;
 
       // Vaciar los niveles taxonómicos inferiores.
-      for (
-        var lowerRank = rankIndex + 1;
-        lowerRank <= 5;
-        lowerRank++
-      ) {
+      for (var lowerRank = rankIndex + 1; lowerRank <= 5; lowerRank++) {
         predictionParts[lowerRank] = '';
       }
 
@@ -366,9 +416,7 @@ class LocalClassifierService {
 
   /// Convierte la imagen RGB a Float32 NHWC [0, 1].
   Float32List _imageToFloat32(img.Image image) {
-    final buffer = Float32List(
-      _inputSize * _inputSize * 3,
-    );
+    final buffer = Float32List(_inputSize * _inputSize * 3);
 
     var index = 0;
 
@@ -396,9 +444,7 @@ class LocalClassifierService {
       final number = (value as num).toDouble();
 
       if (!number.isFinite) {
-        throw const FormatException(
-          'SpeciesNet produjo logits no finitos',
-        );
+        throw const FormatException('SpeciesNet produjo logits no finitos');
       }
 
       if (number > maxVal) {
@@ -406,31 +452,21 @@ class LocalClassifierService {
       }
     }
 
-    final expValues = List<double>.filled(
-      logits.length,
-      0,
-    );
+    final expValues = List<double>.filled(logits.length, 0);
 
     var sum = 0.0;
 
     for (var index = 0; index < logits.length; index++) {
-      final exponent = math.exp(
-        (logits[index] as num).toDouble() - maxVal,
-      );
+      final exponent = math.exp((logits[index] as num).toDouble() - maxVal);
 
       expValues[index] = exponent;
       sum += exponent;
     }
 
     if (sum == 0 || !sum.isFinite) {
-      throw const FormatException(
-        'No se pudo calcular Softmax de SpeciesNet',
-      );
+      throw const FormatException('No se pudo calcular Softmax de SpeciesNet');
     }
 
-    return [
-      for (final value in expValues)
-        value / sum,
-    ];
+    return [for (final value in expValues) value / sum];
   }
 }

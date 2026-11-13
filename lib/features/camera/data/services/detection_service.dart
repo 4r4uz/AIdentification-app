@@ -1,4 +1,7 @@
 import 'dart:io';
+
+import 'package:flutter/foundation.dart';
+
 import '/core/network/supabase_service.dart';
 import '/features/camera/data/models/detection_model.dart';
 import '/features/profile/data/services/profile_refresh_notifier.dart';
@@ -18,7 +21,12 @@ class DetectionService {
       final user = _supabaseService.currentUser;
       if (user == null) throw Exception('Usuario no autenticado');
 
+      debugPrint(
+        '[DetectionService] Iniciando guardado: speciesId=$speciesId, '
+        'imagen=${await imageFile.length()} bytes',
+      );
       final imagePath = await _uploadImage(imageFile, user.id);
+      debugPrint('[DetectionService] Imagen subida a almacenamiento');
 
       final response = await _supabaseService.client
           .from('detections')
@@ -33,11 +41,13 @@ class DetectionService {
           .select()
           .single();
 
+      debugPrint('[DetectionService] Registro insertado en Supabase');
       final detection = DetectionModel.fromJson(response);
       ProfileRefreshNotifier.notifyDetectionSaved();
 
       return detection;
     } catch (e) {
+      debugPrint('[DetectionService] Falló el guardado: $e');
       throw Exception('Error al guardar detección: ${e.toString()}');
     }
   }
@@ -51,8 +61,10 @@ class DetectionService {
           .from('detection-images')
           .upload(filePath, imageFile);
 
+      debugPrint('[DetectionService] Subida de imagen completada');
       return filePath;
     } catch (e) {
+      debugPrint('[DetectionService] Falló la subida de imagen: $e');
       throw Exception('Error al subir imagen: ${e.toString()}');
     }
   }

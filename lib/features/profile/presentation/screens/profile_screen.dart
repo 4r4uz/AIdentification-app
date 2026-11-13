@@ -11,6 +11,7 @@ import '/features/camera/data/services/detection_service.dart';
 import '/shared/widgets/common_widgets.dart';
 import '/features/profile/data/services/profile_refresh_notifier.dart';
 import '/features/profile/data/services/profile_service.dart';
+import '/features/gallery/presentation/screens/gallery_screen.dart';
 import '/core/theme/app_theme.dart';
 import '/core/theme/colors.dart';
 import '/features/auth/presentation/screens/login_screen.dart';
@@ -35,10 +36,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
   final AuthService _authService = ServiceLocator.auth;
   final DetectionService _detectionService = ServiceLocator.detection;
   final ProfileService _profileService = ServiceLocator.profile;
+  final _speciesService = ServiceLocator.species;
   final ImagePicker _imagePicker = ImagePicker();
 
   User? _currentUser;
   int _totalDetections = 0;
+  int _discoveredSpeciesCount = 0;
+  int _totalSpeciesCount = 0;
+  bool _hasCollectionStats = false;
   bool _isLoading = false;
   bool _isUploadingImage = false;
   bool _isFetching = false;
@@ -58,6 +63,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
         setState(() {
           _currentUser = null;
           _totalDetections = 0;
+          _discoveredSpeciesCount = 0;
+          _totalSpeciesCount = 0;
+          _hasCollectionStats = false;
           _avatarUrl = null;
           _localAvatarFile = null;
           _loadError = null;
@@ -83,6 +91,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
       setState(() {
         _currentUser = null;
         _totalDetections = 0;
+        _discoveredSpeciesCount = 0;
+        _totalSpeciesCount = 0;
+        _hasCollectionStats = false;
         _avatarUrl = null;
         _localAvatarFile = null;
         _loadError = null;
@@ -113,6 +124,26 @@ class _ProfileScreenState extends State<ProfileScreen> {
   void _onSuccessfulDetectionSaved() {
     if (widget.isAuthenticated && _currentUser != null) {
       setState(() => _totalDetections++);
+      _loadCollectionStats(_currentUser!.id);
+    }
+  }
+
+  Future<void> _loadCollectionStats(String userId) async {
+    try {
+      final results = await Future.wait([
+        _speciesService.getAllSpecies(),
+        _speciesService.getDiscoveredSpecies(userId),
+      ]);
+      if (!mounted || _authService.currentUser?.id != userId) return;
+
+      setState(() {
+        _totalSpeciesCount = results[0].length;
+        _discoveredSpeciesCount = results[1].length;
+        _hasCollectionStats = true;
+      });
+    } catch (error) {
+      debugPrint('Error cargando el progreso de colección: $error');
+      if (mounted) setState(() => _hasCollectionStats = false);
     }
   }
 
@@ -140,13 +171,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
         _profileService.getProfilePictureUrl(user.id),
       ]);
       if (!mounted || _authService.currentUser?.id != user.id) return;
+      await _loadCollectionStats(user.id);
+      if (!mounted || _authService.currentUser?.id != user.id) return;
 
       final metadataAvatar = user.userMetadata?['avatar_url'];
       setState(() {
         _currentUser = user;
         _totalDetections = results[0] as int;
-        _avatarUrl =
-            results[1] as String? ?? metadataAvatar as String?;
+        _avatarUrl = results[1] as String? ?? metadataAvatar as String?;
         _hasLoaded = true;
         _isLoading = false;
       });
@@ -166,9 +198,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _openSettings() async {
     final result = await Navigator.of(context).push<bool>(
-      MaterialPageRoute<bool>(
-        builder: (_) => const ProfileSettingsScreen(),
-      ),
+      MaterialPageRoute<bool>(builder: (_) => const ProfileSettingsScreen()),
     );
 
     if (result == true && mounted) {
@@ -176,10 +206,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  Future<void> _openLogin() async {
-    final result = await Navigator.of(context).push<bool>(
-      MaterialPageRoute<bool>(builder: (_) => const LoginScreen()),
+  Future<void> _openCollection() async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => GalleryScreen(isAuthenticated: widget.isAuthenticated),
+      ),
     );
+  }
+
+  Future<void> _openLogin() async {
+    final result = await Navigator.of(
+      context,
+    ).push<bool>(MaterialPageRoute<bool>(builder: (_) => const LoginScreen()));
 
     if (result == true && mounted) {
       Navigator.of(context).pop(true);
@@ -251,16 +289,31 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Perfil'),
+        backgroundColor: context.palette.primarySoft,
         actions: [
           IconButton(
             tooltip: 'Configuración',
             onPressed: _openSettings,
-            icon: const Icon(Icons.more_vert_rounded),
+            icon: const Icon(Icons.settings_outlined),
           ),
         ],
       ),
       body: widget.isAuthenticated
-          ? _buildAuthenticatedProfile(context)
+          ? DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    context.palette.primarySoft.withValues(alpha: 0.45),
+                    context.palette.background,
+                    context.palette.background,
+                  ],
+                  stops: const [0, 0.32, 1],
+                ),
+              ),
+              child: _buildAuthenticatedProfile(context),
+            )
           : _buildGuestProfile(context),
     );
   }
@@ -301,17 +354,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Container(
-          padding: const EdgeInsets.fromLTRB(22, 26, 22, 24),
+          padding: const EdgeInsets.all(18),
           decoration: BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: [palette.primarySoft, palette.surface],
+              colors: [
+                palette.primarySoft.withValues(alpha: 0.95),
+                palette.surface,
+              ],
             ),
-            borderRadius: BorderRadius.circular(28),
+            borderRadius: BorderRadius.circular(26),
             border: Border.all(color: palette.border),
           ),
-          child: Column(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               ProfileAvatar(
                 imageUrl: _avatarUrl,
@@ -319,64 +376,149 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 onTap: _pickAndUploadImage,
                 isUploading: _isUploadingImage,
               ),
-              const SizedBox(height: 18),
-              Text(
-                username,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: palette.textPrimary,
-                  fontSize: 25,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: -.4,
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 26),
-        Text('Tu actividad', style: AppTheme.headingStyle(context)),
-        const SizedBox(height: 12),
-        Container(
-          padding: const EdgeInsets.all(20),
-          decoration: AppTheme.cardDecoration(context),
-          child: Row(
-            children: [
-              Container(
-                width: 52,
-                height: 52,
-                decoration: BoxDecoration(
-                  color: palette.primarySoft,
-                  borderRadius: BorderRadius.circular(17),
-                ),
-                child: Icon(Icons.camera_alt_rounded, color: palette.primary),
-              ),
-              const SizedBox(width: 16),
+              const SizedBox(width: 18),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Identificaciones guardadas',
+                      username,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: palette.textSecondary,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
+                        color: palette.textPrimary,
+                        fontSize: 24,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -.4,
                       ),
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      '$_totalDetections',
+                      'Explorador de fauna chilena',
                       style: TextStyle(
-                        color: palette.textPrimary,
-                        fontSize: 28,
-                        fontWeight: FontWeight.w800,
-                        height: 1,
+                        color: palette.textSecondary,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
                   ],
                 ),
               ),
             ],
+          ),
+        ),
+        const SizedBox(height: 24),
+        _ProfileSectionTitle(
+          icon: Icons.bar_chart_rounded,
+          title: 'Tus estadísticas',
+        ),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.symmetric(vertical: 18),
+          decoration: AppTheme.cardDecoration(context),
+          child: Row(
+            children: [
+              Expanded(
+                child: _ProfileStat(
+                  icon: Icons.pets_rounded,
+                  value: _hasCollectionStats ? '$_discoveredSpeciesCount' : '—',
+                  label: 'Especies descubiertas',
+                ),
+              ),
+              Container(width: 1, height: 76, color: palette.border),
+              Expanded(
+                child: _ProfileStat(
+                  icon: Icons.camera_alt_rounded,
+                  value: '$_totalDetections',
+                  label: 'Avistamientos registrados',
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 24),
+        _ProfileSectionTitle(icon: Icons.star_rounded, title: 'Tu colección'),
+        const SizedBox(height: 12),
+        Material(
+          color: palette.surface,
+          borderRadius: BorderRadius.circular(24),
+          child: InkWell(
+            onTap: _openCollection,
+            borderRadius: BorderRadius.circular(24),
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: palette.border),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 68,
+                    height: 68,
+                    decoration: BoxDecoration(
+                      color: palette.primarySoft,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Icon(
+                      Icons.menu_book_rounded,
+                      color: palette.primary,
+                      size: 36,
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _hasCollectionStats
+                              ? 'Completa tu colección'
+                              : 'Tu colección',
+                          style: TextStyle(
+                            color: palette.textPrimary,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 5),
+                        Text(
+                          _hasCollectionStats
+                              ? 'Descubriste $_discoveredSpeciesCount de $_totalSpeciesCount especies'
+                              : 'No se pudo cargar el progreso. Toca para reintentar.',
+                          style: TextStyle(
+                            color: palette.textSecondary,
+                            fontSize: 13,
+                          ),
+                        ),
+                        if (_hasCollectionStats) ...[
+                          const SizedBox(height: 10),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: LinearProgressIndicator(
+                              value: _totalSpeciesCount == 0
+                                  ? 0
+                                  : (_discoveredSpeciesCount /
+                                            _totalSpeciesCount)
+                                        .clamp(0.0, 1.0),
+                              minHeight: 7,
+                              backgroundColor: palette.surfaceMuted,
+                              color: palette.primary,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    color: palette.primary,
+                    size: 26,
+                  ),
+                ],
+              ),
+            ),
           ),
         ),
       ],
@@ -441,6 +583,70 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
         ),
         const SizedBox(height: 18),
+      ],
+    );
+  }
+}
+
+class _ProfileSectionTitle extends StatelessWidget {
+  final IconData icon;
+  final String title;
+
+  const _ProfileSectionTitle({required this.icon, required this.title});
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.palette;
+    return Row(
+      children: [
+        Icon(icon, color: palette.primary, size: 25),
+        const SizedBox(width: 9),
+        Text(
+          title,
+          style: AppTheme.headingStyle(context)
+              .copyWith(fontWeight: FontWeight.w800),
+        ),
+      ],
+    );
+  }
+}
+
+class _ProfileStat extends StatelessWidget {
+  final IconData icon;
+  final String value;
+  final String label;
+
+  const _ProfileStat({
+    required this.icon,
+    required this.value,
+    required this.label,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.palette;
+    return Column(
+      children: [
+        Icon(icon, color: palette.primary, size: 29),
+        const SizedBox(height: 8),
+        Text(
+          value,
+          style: TextStyle(
+            color: palette.textPrimary,
+            fontSize: 22,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          label,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: palette.textSecondary,
+            fontSize: 12,
+            height: 1.25,
+          ),
+        ),
       ],
     );
   }

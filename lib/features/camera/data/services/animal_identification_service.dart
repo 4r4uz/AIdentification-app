@@ -52,7 +52,10 @@ class AnimalIdentificationService {
   /// 2. Recorta la región detectada.
   /// 3. Clasifica el recorte con SpeciesNet.
   /// 4. Devuelve un resultado unificado.
-  Future<Map<String, dynamic>> identifyAnimal(img.Image image) async {
+  Future<Map<String, dynamic>> identifyAnimal(
+    img.Image image, {
+    void Function()? onClassifierStarted,
+  }) async {
     if (!isDetectorLoaded) {
       throw Exception('MegaDetector no está inicializado');
     }
@@ -60,6 +63,11 @@ class AnimalIdentificationService {
     if (image.width <= 0 || image.height <= 0) {
       throw ArgumentError('La imagen tiene dimensiones inválidas');
     }
+
+    debugPrint(
+      '[AnimalIdentification] Inicia MegaDetector con imagen '
+      '${image.width}x${image.height}',
+    );
 
     // --------------------------------------------------
     // 1. DETECCIÓN DEL ANIMAL
@@ -74,7 +82,10 @@ class AnimalIdentificationService {
     }
 
     if (detection == null) {
-      debugPrint('AnimalIdentification: MegaDetector no encontró un animal');
+      debugPrint(
+        '[AnimalIdentification] MegaDetector no encontró ningún animal; '
+        'SpeciesNet no se ejecutará',
+      );
       return {
         'status': 'not_detected',
         'label': 'No se detectaron animales',
@@ -119,6 +130,14 @@ class AnimalIdentificationService {
       height: cropHeight,
     );
 
+    debugPrint(
+      '[AnimalIdentification] Animal detectado: '
+      'confianza=${detection.confidence}, '
+      'bbox=($left,$top)-($right,$bottom), '
+      'recorte=${animalCrop.width}x${animalCrop.height}; '
+      'entra a SpeciesNet',
+    );
+    onClassifierStarted?.call();
     await _initializeClassifier();
 
     // --------------------------------------------------
@@ -136,9 +155,12 @@ class AnimalIdentificationService {
       rethrow;
     }
     debugPrint(
-      'AnimalIdentification: detección=${detection.confidence}, '
+      '[AnimalIdentification] SpeciesNet terminó: '
+      'detección=${detection.confidence}, '
       'resultado=${classification['label']}, '
-      'estado=${classification['status']}',
+      'estado=${classification['status']}, '
+      'confianza=${classification['confidence']}, '
+      'prediction=${classification['prediction']}',
     );
 
     // --------------------------------------------------

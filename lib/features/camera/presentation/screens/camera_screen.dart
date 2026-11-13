@@ -10,6 +10,7 @@ import '/features/camera/presentation/widgets/camera_widget.dart';
 import '/features/camera/data/services/local_classifier_service.dart';
 import '/features/camera/data/services/mega_detector_service.dart';
 import '/features/camera/data/services/animal_identification_service.dart';
+import '/features/gallery/data/models/species_model.dart';
 import '/core/theme/colors.dart';
 import '/features/camera/presentation/screens/result_screen.dart';
 
@@ -42,6 +43,7 @@ class _CameraScreenState extends State<CameraScreen> {
       );
 
   bool _isProcessing = false;
+  String _processingMessage = 'Detectando animal...';
   bool _isDetectorReady = false;
   bool _isDetectorInitializing = false;
   String? _detectorError;
@@ -179,21 +181,39 @@ class _CameraScreenState extends State<CameraScreen> {
       return;
     }
 
-    setState(() => _isProcessing = true);
+    setState(() {
+      _isProcessing = true;
+      _processingMessage = 'Detectando animal...';
+    });
     _isProcessingWithAI = true;
 
     try {
       final bytes = await imageFile.readAsBytes();
+      debugPrint(
+        '[CameraScreen] Archivo recibido para análisis: ${imageFile.path}, '
+        '${bytes.length} bytes',
+      );
       final decodedImage = img.decodeImage(bytes);
       if (decodedImage == null) {
         throw Exception('No se pudo decodificar la imagen capturada');
       }
       final image = img.bakeOrientation(decodedImage);
+      debugPrint(
+        '[CameraScreen] Imagen enviada al flujo IA: '
+        '${decodedImage.width}x${decodedImage.height}; '
+        'orientada=${image.width}x${image.height}',
+      );
       final inference = Completer<void>();
       _inferenceCompletion = inference;
       final Map<String, dynamic> result;
       try {
-        result = await _animalIdentificationService.identifyAnimal(image);
+        result = await _animalIdentificationService.identifyAnimal(
+          image,
+          onClassifierStarted: () {
+            if (!mounted) return;
+            setState(() => _processingMessage = 'Clasificando animal...');
+          },
+        );
       } finally {
         inference.complete();
         if (identical(_inferenceCompletion, inference)) {
@@ -201,70 +221,114 @@ class _CameraScreenState extends State<CameraScreen> {
         }
       }
       debugPrint(
-        'CameraScreen: resultado IA '
+        '[CameraScreen] Inferencia completada: '
         'status=${result['status']}, label=${result['label']}, '
         'prediction=${result['prediction']}',
       );
 
       if (!mounted) return;
 
-      if (result['status'] == 'ok') {
-        final prediction = result['prediction']?.toString() ?? '';
-        final predictionSource = result['prediction_source']?.toString() ?? '';
-        final species = await _speciesService.resolveDetectedSpecies(
-          prediction: prediction,
-          predictionSource: predictionSource,
-        );
-
-        if (species == null) {
-          debugPrint(
-            'Detección no válida: no existe coincidencia exacta para '
-            'name_scientific en species.',
-          );
-        } else {
-          try {
-            Position? position;
-            try {
-              position = await Geolocator.getCurrentPosition(
-                locationSettings: const LocationSettings(
-                  accuracy: LocationAccuracy.high,
-                ),
-              ).timeout(const Duration(seconds: 5));
-            } catch (error) {
-              debugPrint('No se pudo obtener ubicación: $error');
-            }
-
-            final user = _authService.currentUser;
-            if (user != null) {
-              await _detectionService.saveDetection(
-                imageFile: imageFile,
-                speciesId: species.id,
-                confidence: (result['confidence'] as num?)?.toDouble(),
-                latitude: position?.latitude,
-                longitude: position?.longitude,
-              );
-            }
-          } catch (error) {
-            debugPrint('Error guardando detección: $error');
-          }
-        }
-      }
-
-      if (!mounted) return;
-      await Navigator.push<void>(
+      debugPrint('[CameraScreen] Abriendo pantalla de resultado');
+      final navigation = Navigator.push<void>(
         context,
         MaterialPageRoute(
           builder: (_) =>
               ResultScreen(result: result, imagePath: imageFile.path),
         ),
       );
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        unawaited(_saveDetectionAfterResult(result, imageFile));
+      });
+      await navigation;
     } catch (error) {
-      debugPrint('Error en análisis local: $error');
+      debugPrint('[CameraScreen] Error durante captura/análisis: $error');
       _showError(error.toString());
     } finally {
       if (mounted) setState(() => _isProcessing = false);
       _isProcessingWithAI = false;
     }
+  }
+
+  Future<void> _saveDetectionAfterResult(
+    Map<String, dynamic> result,
+    File imageFile,
+  ) async {
+    debugPrint('[DetectionSave] Resultado visible; iniciando persistencia');
+    if (result['status'] != 'ok') {
+      debugPrint(
+        '[DetectionSave] Omitida: resultado status=${result['status']}',
+      );
+      return;
+    }
+
+    final user = _authService.currentUser;
+    if (user == null) {
+      debugPrint('[DetectionSave] Omitida: no hay sesión autenticada');
+      return;
+    }
+
+    final prediction = result['prediction']?.toString() ?? '';
+    final predictionSource = result['prediction_source']?.toString() ?? '';
+    debugPrint(
+      '[DetectionSave] Buscando especie: source=$predictionSource, '
+      'prediction=$prediction',
+    );
+
+    final SpeciesModel? species;
+    try {
+      species = await _speciesService.resolveDetectedSpecies(
+        prediction: prediction,
+        predictionSource: predictionSource,
+      );
+    } catch (error) {
+      debugPrint('[DetectionSave] Error buscando especie: $error');
+      return;
+    }
+    if (species == null) {
+      debugPrint(
+        '[DetectionSave] Omitida: no se encontró especie compatible '
+        'para guardar',
+      );
+      return;
+    }
+    debugPrint('[DetectionSave] Especie resuelta: id=${species.id}');
+
+    final position = await _tryGetOptionalLocation();
+    debugPrint(
+      position == null
+          ? '[DetectionSave] Ubicación no encontrada; se guardará sin coordenadas'
+          : '[DetectionSave] Ubicación encontrada',
+    );
+    debugPrint('[DetectionSave] Subiendo imagen y guardando detección');
+
+    try {
+      await _detectionService.saveDetection(
+        imageFile: imageFile,
+        speciesId: species.id,
+        confidence: (result['confidence'] as num?)?.toDouble(),
+        latitude: position?.latitude,
+        longitude: position?.longitude,
+      );
+      debugPrint('[DetectionSave] Detección guardada correctamente');
+    } catch (error) {
+      debugPrint('[DetectionSave] Error guardando detección: $error');
+    }
+  }
+
+  Future<Position?> _tryGetOptionalLocation() async {
+    debugPrint('[DetectionSave] Intentando obtener ubicación (máximo 5 s)');
+    try {
+      return await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+        ),
+      ).timeout(const Duration(seconds: 5));
+    } on TimeoutException {
+      debugPrint('[DetectionSave] Ubicación no encontrada: tiempo agotado');
+    } catch (error) {
+      debugPrint('[DetectionSave] Ubicación no encontrada: $error');
+    }
+    return null;
   }
 
   void _showError(String message) {
@@ -309,7 +373,7 @@ class _CameraScreenState extends State<CameraScreen> {
               ),
               SizedBox(height: 16),
               Text(
-                'Detectando y clasificando...',
+                _processingMessage,
                 style: TextStyle(
                   color: context.palette.cameraForeground,
                   fontSize: 16,

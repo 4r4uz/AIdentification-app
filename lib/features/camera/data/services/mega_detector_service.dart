@@ -33,7 +33,7 @@ class MegaDetectorService {
 
   static const int _animalClassIndex = 0;
 
-  static const double _animalThreshold = 0.2;
+  static const double _animalThreshold = 0.1;
 
   final OnnxRuntime _ort = OnnxRuntime();
 
@@ -136,6 +136,11 @@ class MegaDetectorService {
       throw ArgumentError('La imagen tiene dimensiones inválidas');
     }
 
+    debugPrint(
+      '[MegaDetector] Inferencia iniciada con imagen '
+      '${image.width}x${image.height}',
+    );
+
     // --------------------------------------------------
     // LETTERBOX
     // --------------------------------------------------
@@ -147,12 +152,17 @@ class MegaDetectorService {
 
     final resizedWidth = (image.width * scale).round();
     final resizedHeight = (image.height * scale).round();
+    final padLeft = (_inputSize - resizedWidth) ~/ 2;
+    final padTop = (_inputSize - resizedHeight) ~/ 2;
 
     final scaleX = resizedWidth / image.width;
     final scaleY = resizedHeight / image.height;
-
-    final padLeft = (_inputSize - resizedWidth) ~/ 2;
-    final padTop = (_inputSize - resizedHeight) ~/ 2;
+    debugPrint(
+      '[MegaDetector] Preprocesamiento: ${image.width}x${image.height} -> '
+      '${resizedWidth}x$resizedHeight + padding '
+      '(left=$padLeft, top=$padTop) -> '
+      '${_inputSize}x$_inputSize; tensor [1,3,$_inputSize,$_inputSize]',
+    );
 
     final resized = img.copyResize(
       image,

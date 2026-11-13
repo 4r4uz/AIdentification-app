@@ -4,7 +4,6 @@ class SpeciesModel {
   final String? nameScientific;
   final String? description;
   final String? imageUrl;
-  final String rarity;
   final String? habitat;
 
   SpeciesModel({
@@ -13,7 +12,6 @@ class SpeciesModel {
     this.nameScientific,
     this.description,
     this.imageUrl,
-    required this.rarity,
     this.habitat,
   });
 
@@ -26,7 +24,6 @@ class SpeciesModel {
       nameScientific: (json['name_scientific'] ?? json['scientific_name']) as String?,
       description: json['description'] as String?,
       imageUrl: json['image_url'] as String?,
-      rarity: json['rarity'] as String? ?? 'comun',
       habitat: json['habitat'] as String?,
     );
   }
@@ -38,23 +35,7 @@ class SpeciesModel {
       'name_scientific': nameScientific,
       'description': description,
       'image_url': imageUrl,
-      'rarity': rarity,
       'habitat': habitat,
     };
-  }
-
-  String getRarityColorHex() {
-    switch (rarity.toLowerCase()) {
-      case 'comun':
-        return '#9E9E9E';
-      case 'raro':
-        return '#2196F3';
-      case 'epico':
-        return '#9C27B0';
-      case 'legendario':
-        return '#FFC107';
-      default:
-        return '#9E9E9E';
-    }
   }
 }
