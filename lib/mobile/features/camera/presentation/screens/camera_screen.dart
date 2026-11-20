@@ -1,0 +1,388 @@
+import 'dart:async';
+import 'dart:io';
+
+import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:image/image.dart' as img;
+
+import '/mobile/core/service_locator.dart';
+import '/mobile/features/camera/presentation/widgets/camera_widget.dart';
+import '/mobile/features/camera/data/services/local_classifier_service.dart';
+import '/mobile/features/camera/data/services/mega_detector_service.dart';
+import '/mobile/features/camera/data/services/animal_identification_service.dart';
+import '/mobile/features/gallery/data/models/species_model.dart';
+import '/mobile/core/theme/colors.dart';
+import '/mobile/features/camera/presentation/screens/result_screen.dart';
+
+/// Pantalla principal de la cámara con detección e identificación de animales.
+///
+/// Gestiona el ciclo de vida de la cámara, la inicialización de los modelos de IA,
+/// el procesamiento de imágenes capturadas y la navegación a la pantalla de resultados.
+///
+/// La pantalla maneja estados de inicialización, procesamiento y errores de manera
+/// segura, evitando operaciones concurrentes y fugas de recursos.
+class CameraScreen extends StatefulWidget {
+  final bool isActive;
+
+  const CameraScreen({super.key, required this.isActive});
+
+  @override
+  State<CameraScreen> createState() => _CameraScreenState();
+}
+
+class _CameraScreenState extends State<CameraScreen> {
+  final _detectionService = ServiceLocator.detection;
+  final _authService = ServiceLocator.auth;
+  final _speciesService = ServiceLocator.species;
+  final megaDetectorService = MegaDetectorService();
+  final localClassifierService = LocalClassifierService();
+  late final AnimalIdentificationService _animalIdentificationService =
+      AnimalIdentificationService(
+        megaDetectorService: megaDetectorService,
+        localClassifierService: localClassifierService,
+      );
+
+  bool _isProcessing = false;
+  String _processingMessage = 'Detectando animal...';
+  bool _isDetectorReady = false;
+  bool _isDetectorInitializing = false;
+  String? _detectorError;
+  Future<void>? _detectorInitialization;
+  Future<void>? _aiDisposal;
+  Completer<void>? _inferenceCompletion;
+
+  // Bloqueo para evitar doble liberación de modelos de IA.
+  bool _isReleasingAI = false;
+
+  // Bloqueo para evitar procesamiento concurrente de la IA
+  bool _isProcessingWithAI = false;
+
+  @override
+  void didUpdateWidget(covariant CameraScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isActive && !widget.isActive) {
+      _isReleasingAI = true;
+      unawaited(_releaseAIWhenIdle());
+    }
+  }
+
+  void _onCameraReady() {
+    if (!mounted || !widget.isActive) return;
+    debugPrint('CameraScreen: cámara lista; iniciando MegaDetector');
+    unawaited(_initializeDetector());
+  }
+
+  Future<void> _initializeDetector() async {
+    final disposal = _aiDisposal;
+    if (disposal != null) await disposal;
+    if (!mounted || !widget.isActive) return;
+    if (_animalIdentificationService.isDetectorLoaded) {
+      if (!_isDetectorReady) {
+        setState(() => _isDetectorReady = true);
+      }
+      return;
+    }
+    final initialization = _detectorInitialization;
+    if (initialization != null) {
+      await initialization;
+      return;
+    }
+
+    final future = _initializeDetectorInternal();
+    _detectorInitialization = future;
+    try {
+      await future;
+    } finally {
+      if (identical(_detectorInitialization, future)) {
+        _detectorInitialization = null;
+      }
+    }
+  }
+
+  Future<void> _initializeDetectorInternal() async {
+    if (!mounted || !widget.isActive) return;
+    _isDetectorInitializing = true;
+    if (mounted) {
+      setState(() {
+        _detectorError = null;
+        _isDetectorReady = false;
+      });
+    }
+
+    try {
+      debugPrint('CameraScreen: inicializando MegaDetector');
+      await _animalIdentificationService.initializeDetector();
+      if (!mounted || !widget.isActive) return;
+      debugPrint('CameraScreen: MegaDetector listo');
+      setState(() => _isDetectorReady = true);
+    } catch (error) {
+      debugPrint('CameraScreen: error inicializando MegaDetector: $error');
+      if (mounted) setState(() => _detectorError = error.toString());
+    } finally {
+      _isDetectorInitializing = false;
+    }
+  }
+
+  @override
+  void dispose() {
+    // ✅ Solo liberar IA una vez
+    if (!_isReleasingAI) {
+      _isReleasingAI = true;
+      unawaited(_releaseAIWhenIdle());
+    }
+    super.dispose();
+  }
+
+  Future<void> _releaseAIWhenIdle() async {
+    final existingDisposal = _aiDisposal;
+    if (existingDisposal != null) {
+      await existingDisposal;
+      return;
+    }
+
+    final disposal = _releaseAIInternal().catchError((Object error) {
+      debugPrint('CameraScreen: error liberando modelos IA: $error');
+    });
+    _aiDisposal = disposal;
+    try {
+      await disposal;
+    } finally {
+      if (identical(_aiDisposal, disposal)) _aiDisposal = null;
+    }
+  }
+
+  Future<void> _releaseAIInternal() async {
+    final inference = _inferenceCompletion;
+    if (inference != null) await inference.future;
+    await _detectorInitialization;
+
+    if (mounted && widget.isActive) return;
+
+    await _animalIdentificationService.dispose();
+    if (mounted && !widget.isActive) {
+      setState(() {
+        _isDetectorReady = false;
+        _detectorError = null;
+      });
+      debugPrint('CameraScreen: modelos IA liberados al ocultar la pestaña');
+    }
+  }
+
+  Future<void> _onImageCaptured(File imageFile) async {
+    // ✅ Bloqueo para evitar re-entrada durante procesamiento
+    if (_isProcessing || _isProcessingWithAI) return;
+    if (!_isDetectorReady) {
+      _showError(
+        _detectorError ??
+            (_isDetectorInitializing
+                ? 'MegaDetector todavía se está cargando.'
+                : 'MegaDetector no está disponible.'),
+      );
+      return;
+    }
+
+    setState(() {
+      _isProcessing = true;
+      _processingMessage = 'Detectando animal...';
+    });
+    _isProcessingWithAI = true;
+
+    try {
+      final bytes = await imageFile.readAsBytes();
+      debugPrint(
+        '[CameraScreen] Archivo recibido para análisis: ${imageFile.path}, '
+        '${bytes.length} bytes',
+      );
+      final decodedImage = img.decodeImage(bytes);
+      if (decodedImage == null) {
+        throw Exception('No se pudo decodificar la imagen capturada');
+      }
+      final image = img.bakeOrientation(decodedImage);
+      debugPrint(
+        '[CameraScreen] Imagen enviada al flujo IA: '
+        '${decodedImage.width}x${decodedImage.height}; '
+        'orientada=${image.width}x${image.height}',
+      );
+      final inference = Completer<void>();
+      _inferenceCompletion = inference;
+      final Map<String, dynamic> result;
+      try {
+        result = await _animalIdentificationService.identifyAnimal(
+          image,
+          onClassifierStarted: () {
+            if (!mounted) return;
+            setState(() => _processingMessage = 'Clasificando animal...');
+          },
+        );
+      } finally {
+        inference.complete();
+        if (identical(_inferenceCompletion, inference)) {
+          _inferenceCompletion = null;
+        }
+      }
+      debugPrint(
+        '[CameraScreen] Inferencia completada: '
+        'status=${result['status']}, label=${result['label']}, '
+        'prediction=${result['prediction']}',
+      );
+
+      if (!mounted) return;
+
+      debugPrint('[CameraScreen] Abriendo pantalla de resultado');
+      final navigation = Navigator.push<void>(
+        context,
+        MaterialPageRoute(
+          builder: (_) =>
+              ResultScreen(result: result, imagePath: imageFile.path),
+        ),
+      );
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        unawaited(_saveDetectionAfterResult(result, imageFile));
+      });
+      await navigation;
+    } catch (error) {
+      debugPrint('[CameraScreen] Error durante captura/análisis: $error');
+      _showError(error.toString());
+    } finally {
+      if (mounted) setState(() => _isProcessing = false);
+      _isProcessingWithAI = false;
+    }
+  }
+
+  Future<void> _saveDetectionAfterResult(
+    Map<String, dynamic> result,
+    File imageFile,
+  ) async {
+    debugPrint('[DetectionSave] Resultado visible; iniciando persistencia');
+    if (result['status'] != 'ok') {
+      debugPrint(
+        '[DetectionSave] Omitida: resultado status=${result['status']}',
+      );
+      return;
+    }
+
+    final user = _authService.currentUser;
+    if (user == null) {
+      debugPrint('[DetectionSave] Omitida: no hay sesión autenticada');
+      return;
+    }
+
+    final prediction = result['prediction']?.toString() ?? '';
+    final predictionSource = result['prediction_source']?.toString() ?? '';
+    debugPrint(
+      '[DetectionSave] Buscando especie: source=$predictionSource, '
+      'prediction=$prediction',
+    );
+
+    final SpeciesModel? species;
+    try {
+      species = await _speciesService.resolveDetectedSpecies(
+        prediction: prediction,
+        predictionSource: predictionSource,
+      );
+    } catch (error) {
+      debugPrint('[DetectionSave] Error buscando especie: $error');
+      return;
+    }
+    if (species == null) {
+      debugPrint(
+        '[DetectionSave] Omitida: no se encontró especie compatible '
+        'para guardar',
+      );
+      return;
+    }
+    debugPrint('[DetectionSave] Especie resuelta: id=${species.id}');
+
+    final position = await _tryGetOptionalLocation();
+    debugPrint(
+      position == null
+          ? '[DetectionSave] Ubicación no encontrada; se guardará sin coordenadas'
+          : '[DetectionSave] Ubicación encontrada',
+    );
+    debugPrint('[DetectionSave] Subiendo imagen y guardando detección');
+
+    try {
+      await _detectionService.saveDetection(
+        imageFile: imageFile,
+        speciesId: species.id,
+        confidence: (result['confidence'] as num?)?.toDouble(),
+        latitude: position?.latitude,
+        longitude: position?.longitude,
+      );
+      debugPrint('[DetectionSave] Detección guardada correctamente');
+    } catch (error) {
+      debugPrint('[DetectionSave] Error guardando detección: $error');
+    }
+  }
+
+  Future<Position?> _tryGetOptionalLocation() async {
+    debugPrint('[DetectionSave] Intentando obtener ubicación (máximo 5 s)');
+    try {
+      return await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+        ),
+      ).timeout(const Duration(seconds: 5));
+    } on TimeoutException {
+      debugPrint('[DetectionSave] Ubicación no encontrada: tiempo agotado');
+    } catch (error) {
+      debugPrint('[DetectionSave] Ubicación no encontrada: $error');
+    }
+    return null;
+  }
+
+  void _showError(String message) {
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text('Error: $message')));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Stack(
+        children: [
+          Positioned.fill(
+            child: CameraWidget(
+              isActive: widget.isActive,
+              onImageCaptured: _onImageCaptured,
+              onCameraReady: _onCameraReady,
+            ),
+          ),
+          if (_isProcessing) _buildProcessingDialog(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProcessingDialog() {
+    return Center(
+      child: Material(
+        color: Colors.transparent,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+          decoration: BoxDecoration(
+            color: context.palette.cameraSurface,
+            borderRadius: BorderRadius.all(Radius.circular(16)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(
+                color: context.palette.cameraForeground,
+              ),
+              SizedBox(height: 16),
+              Text(
+                _processingMessage,
+                style: TextStyle(
+                  color: context.palette.cameraForeground,
+                  fontSize: 16,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
