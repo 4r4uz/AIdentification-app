@@ -21,6 +21,10 @@ class SupabaseService {
     await Supabase.initialize(
       url: dotenv.env['SUPABASE_URL'] ?? '',
       publishableKey: dotenv.env['SUPABASE_PUBLISHABLE_KEY'] ?? '',
+      authOptions: const FlutterAuthClientOptions(
+        authFlowType: AuthFlowType.pkce,
+        autoRefreshToken: true,
+      ),
     );
 
     _client = Supabase.instance.client;

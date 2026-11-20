@@ -21,6 +21,7 @@ dependencies:
 
   # web-only
   fl_chart: ^0.70.2
+  web: ^1.1.1
 
   # mobile-only
   flutter_launcher_icons: ^0.14.4

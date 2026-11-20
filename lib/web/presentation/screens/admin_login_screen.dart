@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
 import '../../core/theme/colors.dart';
 import '../../core/theme/app_theme.dart';
 import 'admin_dashboard_screen.dart';
@@ -17,6 +18,60 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
   bool _isLoading = false;
   bool _obscurePassword = true;
   String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _restoreAdminSession();
+  }
+
+  Future<void> _restoreAdminSession() async {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) return;
+
+    try {
+      Map<String, dynamic>? profile;
+      try {
+        profile = await Supabase.instance.client
+            .from('profiles')
+            .select('role, is_active')
+            .eq('id', user.id)
+            .maybeSingle();
+      } on PostgrestException catch (error) {
+        if (error.code != '42703') rethrow;
+        profile = await Supabase.instance.client
+            .from('profiles')
+            .select('role')
+            .eq('id', user.id)
+            .maybeSingle();
+      }
+
+      final role = profile?['role']?.toString();
+      final isActive = profile?['is_active'] != false;
+
+      if (!mounted) return;
+      if (role != 'admin' || !isActive) {
+        await Supabase.instance.client.auth.signOut();
+        if (!mounted) return;
+        setState(() {
+          _errorMessage = !isActive
+              ? 'Tu cuenta está deshabilitada. Contacta al administrador.'
+              : 'Acceso denegado: tu cuenta no tiene permisos de administrador.';
+        });
+        return;
+      }
+
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => const AdminDashboardScreen()),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _errorMessage =
+            'No se pudo validar tu sesión existente. Inicia sesión nuevamente.';
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -52,20 +107,41 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
         return;
       }
 
-      final profile = await supabase
-          .from('profiles')
-          .select('role')
-          .eq('id', user.id)
-          .maybeSingle();
+      Map<String, dynamic>? profile;
+      try {
+        profile = await supabase
+            .from('profiles')
+            .select('role, is_active')
+            .eq('id', user.id)
+            .maybeSingle();
+      } on PostgrestException catch (error) {
+        if (error.code != '42703') rethrow;
+        profile = await supabase
+            .from('profiles')
+            .select('role')
+            .eq('id', user.id)
+            .maybeSingle();
+      }
 
       final role = profile?['role']?.toString();
+      final isActive = profile?['is_active'] != false;
+
+      if (!isActive) {
+        await supabase.auth.signOut();
+        if (mounted) {
+          setState(() {
+            _errorMessage =
+                'Tu cuenta está deshabilitada. Contacta al administrador.';
+          });
+        }
+        return;
+      }
 
       if (role != 'admin') {
         await supabase.auth.signOut();
         if (mounted) {
           setState(() {
-            _errorMessage =
-                'Acceso denegado: tu cuenta no tiene permisos de administrador.';
+            _errorMessage = 'Acceso denegado: tu cuenta no tiene permisos de administrador.';
           });
         }
         return;
@@ -102,10 +178,7 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
           if (isWide) {
             return Row(
               children: [
-                Expanded(
-                  flex: 6,
-                  child: _BrandShowcasePanel(),
-                ),
+                Expanded(flex: 6, child: _BrandShowcasePanel()),
                 Expanded(
                   flex: 5,
                   child: Center(
@@ -159,9 +232,7 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
       decoration: BoxDecoration(
         color: AppColors.surfaceElevated.withValues(alpha: 0.55),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: AppColors.divider.withValues(alpha: 0.7),
-        ),
+        border: Border.all(color: AppColors.divider.withValues(alpha: 0.7)),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.35),
@@ -362,8 +433,9 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.primary,
                 foregroundColor: Colors.black,
-                disabledBackgroundColor:
-                    AppColors.primary.withValues(alpha: 0.4),
+                disabledBackgroundColor: AppColors.primary.withValues(
+                  alpha: 0.4,
+                ),
                 elevation: 0,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(AppTheme.buttonRadius),
@@ -462,9 +534,7 @@ class _BrandShowcasePanel extends StatelessWidget {
           ],
         ),
         border: Border(
-          right: BorderSide(
-            color: AppColors.divider.withValues(alpha: 0.6),
-          ),
+          right: BorderSide(color: AppColors.divider.withValues(alpha: 0.6)),
         ),
       ),
       child: Stack(
@@ -612,9 +682,7 @@ class _FeatureRow extends StatelessWidget {
           decoration: BoxDecoration(
             color: AppColors.surfaceElevated,
             borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: AppColors.divider.withValues(alpha: 0.7),
-            ),
+            border: Border.all(color: AppColors.divider.withValues(alpha: 0.7)),
           ),
           child: Icon(icon, color: AppColors.primary, size: 19),
         ),

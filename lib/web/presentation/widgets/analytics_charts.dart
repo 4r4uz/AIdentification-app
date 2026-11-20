@@ -1,15 +1,13 @@
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/colors.dart';
 
 class AnalyticsChartsSection extends StatelessWidget {
-  final List < Map < String, dynamic > > detections;
+  final List<Map<String, dynamic>> detections;
 
-  const AnalyticsChartsSection({
-    super.key,
-    required this.detections,
-  });
+  const AnalyticsChartsSection({super.key, required this.detections});
 
   @override
   Widget build(BuildContext context) {
@@ -24,20 +22,11 @@ class AnalyticsChartsSection extends StatelessWidget {
                 flex: 3,
                 child: _DetectionsByDayChart(detections: detections),
               ),
-              const SizedBox(width: 20),
-              Expanded(
-                flex: 2,
-                child: _RarityDistributionChart(detections: detections),
-              ),
             ],
           );
         }
         return Column(
-          children: [
-            _DetectionsByDayChart(detections: detections),
-            const SizedBox(height: 20),
-            _RarityDistributionChart(detections: detections),
-          ],
+          children: [_DetectionsByDayChart(detections: detections)],
         );
       },
     );
@@ -49,7 +38,7 @@ class AnalyticsChartsSection extends StatelessWidget {
 // ===========================================================================
 
 class _DetectionsByDayChart extends StatefulWidget {
-    final List < Map < String, dynamic > > detections;
+  final List<Map<String, dynamic>> detections;
   const _DetectionsByDayChart({required this.detections});
 
   @override
@@ -64,13 +53,14 @@ class _DetectionsByDayChartState extends State<_DetectionsByDayChart> {
     final now = DateTime.now();
     final List<DateTime> days = List.generate(
       _selectedDays,
-      (i) => DateTime(now.year, now.month, now.day)
-          .subtract(Duration(days: (_selectedDays - 1) - i)),
+      (i) => DateTime(
+        now.year,
+        now.month,
+        now.day,
+      ).subtract(Duration(days: (_selectedDays - 1) - i)),
     );
 
-    final Map<String, int> countsByDay = {
-      for (final d in days) _dateKey(d): 0,
-    };
+    final Map<String, int> countsByDay = {for (final d in days) _dateKey(d): 0};
 
     for (final det in widget.detections) {
       final rawDate = det['created_at']?.toString();
@@ -178,7 +168,9 @@ class _DetectionsByDayChartState extends State<_DetectionsByDayChart> {
                         if (idx < 0 || idx >= days.length) {
                           return const SizedBox.shrink();
                         }
-                        if (is30Days && idx % 5 != 0 && idx != days.length - 1) {
+                        if (is30Days &&
+                            idx % 5 != 0 &&
+                            idx != days.length - 1) {
                           return const SizedBox.shrink();
                         }
                         final d = days[idx];
@@ -233,7 +225,9 @@ class _DetectionsByDayChartState extends State<_DetectionsByDayChart> {
                         backDrawRodData: BackgroundBarChartRodData(
                           show: true,
                           toY: maxY,
-                          color: AppColors.surfaceElevated.withValues(alpha: 0.5),
+                          color: AppColors.surfaceElevated.withValues(
+                            alpha: 0.5,
+                          ),
                         ),
                       ),
                     ],
@@ -287,144 +281,6 @@ class _RangeChip extends StatelessWidget {
             fontWeight: FontWeight.bold,
           ),
         ),
-      ),
-    );
-  }
-}
-
-// ===========================================================================
-// GRÁFICO 2: DISTRIBUCIÓN POR RAREZA (DONA / PIE CHART)
-// ===========================================================================
-
-class _RarityDistributionChart extends StatelessWidget {
-  final List < Map < String, dynamic > > detections;
-
-  const _RarityDistributionChart({required this.detections});
-
-  @override
-  Widget build(BuildContext context) {
-    final Map<String, int> counts = {
-      'comun': 0,
-      'raro': 0,
-      'epico': 0,
-      'legendario': 0,
-    };
-
-    for (final det in detections) {
-      final species = det['species'] as Map<String, dynamic>?;
-      final rawRarity = (species?['rarity']?.toString() ?? 'comun')
-          .toLowerCase()
-          .replaceAll('ú', 'u')
-          .replaceAll('é', 'e');
-      if (counts.containsKey(rawRarity)) {
-        counts[rawRarity] = (counts[rawRarity] ?? 0) + 1;
-      } else {
-        counts['comun'] = (counts['comun'] ?? 0) + 1;
-      }
-    }
-
-    final total = counts.values.fold<int>(0, (a, b) => a + b);
-
-    final items = [
-      {'key': 'comun', 'label': 'Común', 'color': AppColors.confidenceHigh},
-      {'key': 'raro', 'label': 'Raro', 'color': const Color(0xFF38BDF8)},
-      {'key': 'epico', 'label': 'Épico', 'color': const Color(0xFFD946EF)},
-      {'key': 'legendario', 'label': 'Legendario', 'color': const Color(0xFFFFB800)},
-    ];
-
-    return Container(
-      height: 300,
-      padding: const EdgeInsets.all(20),
-      decoration: AppTheme.cardDecoration(),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                'Distribución por Rareza',
-                style: TextStyle(
-                  color: AppColors.textPrimary,
-                  fontSize: 15,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              Icon(Icons.pie_chart_outline_rounded, color: AppColors.primary, size: 20),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Expanded(
-            child: total == 0
-                ? const Center(
-                    child: Text(
-                      'Sin datos suficientes',
-                      style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
-                    ),
-                  )
-                : Row(
-                    children: [
-                      Expanded(
-                        child: PieChart(
-                          PieChartData(
-                            sectionsSpace: 3,
-                            centerSpaceRadius: 42,
-                            sections: items.map((item) {
-                              final count = counts[item['key']] ?? 0;
-                              final percent = total > 0 ? (count / total) * 100 : 0.0;
-                              return PieChartSectionData(
-                                color: item['color'] as Color,
-                                value: count.toDouble(),
-                                title: count > 0 ? '${percent.toStringAsFixed(0)}%' : '',
-                                radius: 48,
-                                titleStyle: const TextStyle(
-                                  color: Colors.black,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 11,
-                                ),
-                              );
-                            }).toList(),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: items.map((item) {
-                          final count = counts[item['key']] ?? 0;
-                          final color = item['color'] as Color;
-                          return Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 5),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Container(
-                                  width: 10,
-                                  height: 10,
-                                  decoration: BoxDecoration(
-                                    color: color,
-                                    shape: BoxShape.circle,
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  '${item['label']} ($count)',
-                                  style: const TextStyle(
-                                    color: AppColors.textPrimary,
-                                    fontSize: 12.5,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          );
-                        }).toList(),
-                      ),
-                    ],
-                  ),
-          ),
-        ],
       ),
     );
   }

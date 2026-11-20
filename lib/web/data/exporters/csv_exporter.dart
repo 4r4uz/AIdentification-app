@@ -1,5 +1,7 @@
 import 'dart:convert';
-import 'dart:html' as html;
+import 'dart:js_interop';
+
+import 'package:web/web.dart' as web;
 
 class CsvExporter {
   /// Escapa comillas, comas y saltos de línea según el estándar RFC 4180.
@@ -13,7 +15,7 @@ class CsvExporter {
   }
 
   /// Dispara la descarga del archivo CSV en el navegador con BOM UTF-8 para Excel.
-  static void _downloadCsv(String filename, List < List < dynamic > > rows) {
+  static void _downloadCsv(String filename, List<List<dynamic>> rows) {
     final buffer = StringBuffer();
     // BOM UTF-8 para que Excel abra bien tildes (á, é, í, ó, ú) y ñ
     buffer.write('\uFEFF');
@@ -23,30 +25,27 @@ class CsvExporter {
     }
 
     final bytes = utf8.encode(buffer.toString());
-    final blob = html.Blob([bytes], 'text/csv;charset=utf-8;');
-    final url = html.Url.createObjectUrlFromBlob(blob);
+    final blob = web.Blob(
+      <JSUint8Array>[bytes.toJS].toJS,
+      web.BlobPropertyBag(type: 'text/csv;charset=utf-8'),
+    );
+    final url = web.URL.createObjectURL(blob);
 
-    final anchor = html.AnchorElement(href: url)
-      ..setAttribute('download', filename)
+    final anchor = web.HTMLAnchorElement()
+      ..href = url
+      ..download = filename
       ..style.display = 'none';
 
-    html.document.body?.children.add(anchor);
+    web.document.body?.append(anchor);
     anchor.click();
     anchor.remove();
-    html.Url.revokeObjectUrl(url);
+    web.URL.revokeObjectURL(url);
   }
 
   /// Exporta la lista de avistamientos (filtrada o completa).
-  static void exportDetections(List < Map < String, dynamic > > detections) {
-    final rows = < List < dynamic > >[
-      [
-        'ID',
-        'Especie',
-        'Rareza',
-        'Confianza (%)',
-        'Usuario',
-        'Fecha',
-      ],
+  static void exportDetections(List<Map<String, dynamic>> detections) {
+    final rows = <List<dynamic>>[
+      ['ID', 'Especie', 'Confianza (%)', 'Usuario', 'Fecha'],
     ];
 
     for (final d in detections) {
@@ -54,12 +53,10 @@ class CsvExporter {
       final profile = d['profiles'];
 
       final speciesName = (species is Map)
-          ? (species['common_name'] ?? species['name'] ?? 'Especie #${d['species_id']}')
+          ? (species['name_common'] ??
+                species['name'] ??
+                'Especie #${d['species_id']}')
           : 'Especie #${d['species_id'] ?? '-'}';
-
-      final rarity = (species is Map ? species['rarity'] : null) ??
-          d['rarity'] ??
-          'Común';
 
       final rawConf = d['confidence'];
       String confidence = '-';
@@ -75,7 +72,6 @@ class CsvExporter {
       rows.add([
         d['id'] ?? '',
         speciesName,
-        rarity,
         confidence,
         username,
         d['created_at'] ?? '',
@@ -87,15 +83,9 @@ class CsvExporter {
   }
 
   /// Exporta el catálogo de especies.
-  static void exportSpecies(List < Map < String, dynamic > > speciesList) {
-    final rows = < List < dynamic > >[
-      [
-        'ID',
-        'Nombre Común',
-        'Nombre Científico',
-        'Rareza',
-        'Categoría / Hábitat',
-      ],
+  static void exportSpecies(List<Map<String, dynamic>> speciesList) {
+    final rows = <List<dynamic>>[
+      ['ID', 'Nombre Común', 'Nombre Científico', 'Categoría / Hábitat'],
     ];
 
     for (final s in speciesList) {
@@ -103,7 +93,6 @@ class CsvExporter {
         s['id'] ?? '',
         s['name_common'] ?? s['common_name'] ?? s['name'] ?? '',
         s['name_scientific'] ?? s['scientific_name'] ?? '',
-        s['rarity'] ?? '',
         s['habitat'] ?? s['category'] ?? '',
       ]);
     }

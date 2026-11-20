@@ -26,6 +26,19 @@ class AuthService {
       );
 
       if (response.user != null) {
+        final profile = await _supabaseService.client
+            .from('profiles')
+            .select('is_active')
+            .eq('id', response.user!.id)
+            .maybeSingle();
+
+        if (profile != null && profile['is_active'] == false) {
+          await _supabaseService.signOut();
+          throw Exception(
+            'Tu cuenta está deshabilitada. Contacta al administrador.',
+          );
+        }
+
         return UserModel(
           id: response.user!.id,
           email: response.user!.email ?? email,

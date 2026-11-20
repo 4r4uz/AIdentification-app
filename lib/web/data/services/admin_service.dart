@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
 import '../../../supabase/supabase_service.dart';
 
 /// Modelo tipado para las estadísticas del dashboard administrativo.
@@ -17,11 +18,20 @@ class DashboardStats {
   });
 
   factory DashboardStats.empty() => const DashboardStats(
-        totalDetections: 0,
-        totalSpecies: 0,
-        totalUsers: 0,
-        averageConfidence: 0.0,
-      );
+    totalDetections: 0,
+    totalSpecies: 0,
+    totalUsers: 0,
+    averageConfidence: 0.0,
+  );
+}
+
+class AdminPageResult {
+  final int count;
+  final List<Map<String, dynamic>> items;
+
+  const AdminPageResult({required this.count, required this.items});
+
+  const AdminPageResult.empty() : count = 0, items = const [];
 }
 
 /// Capa de servicio para el panel de administración web.
@@ -36,22 +46,23 @@ class AdminService {
     try {
       final detectionsRes = await _client
           .from('detections')
-          .select()
+          .select('id')
           .count(CountOption.exact);
 
       final speciesRes = await _client
           .from('species')
-          .select()
+          .select('id')
           .count(CountOption.exact);
 
       final usersRes = await _client
           .from('profiles')
-          .select()
+          .select('id')
           .count(CountOption.exact);
 
       final List<dynamic> confidenceRows = await _client
           .from('detections')
-          .select('confidence');
+          .select('confidence')
+          .limit(100);
 
       final averageConfidence = _calculateAverageConfidence(confidenceRows);
 
@@ -149,7 +160,7 @@ class AdminService {
         try {
           final speciesRes = await _client
               .from('species')
-              .select('id, name_common, name_scientific, rarity, image_url')
+              .select('id, name_common, name_scientific, habitat, image_url')
               .inFilter('id', speciesIds);
 
           for (final s in speciesRes) {
@@ -167,7 +178,8 @@ class AdminService {
         final uid = d['user_id']?.toString();
         final sid = d['species_id'] as int?;
 
-        d['profiles'] = (uid != null ? profilesById[uid] : null) ??
+        d['profiles'] =
+            (uid != null ? profilesById[uid] : null) ??
             {
               'username': uid != null
                   ? 'Usuario (${uid.substring(0, uid.length > 6 ? 6 : uid.length)})'
@@ -175,12 +187,12 @@ class AdminService {
               'avatar_url': null,
             };
 
-        d['species'] = (sid != null ? speciesById[sid] : null) ??
+        d['species'] =
+            (sid != null ? speciesById[sid] : null) ??
             {
               'id': sid,
               'name_common': sid != null ? 'Especie #$sid' : 'Sin clasificar',
               'name_scientific': 'Pendiente de validación',
-              'rarity': 'comun',
               'image_url': null,
             };
       }
@@ -198,7 +210,9 @@ class AdminService {
     try {
       await _client.from('detections').delete().eq('id', detectionId);
     } catch (e) {
-      debugPrint('[AdminService] Error al eliminar la detección #$detectionId: $e');
+      debugPrint(
+        '[AdminService] Error al eliminar la detección #$detectionId: $e',
+      );
       rethrow;
     }
   }
@@ -211,7 +225,9 @@ class AdminService {
           .update({'species_id': newSpeciesId})
           .eq('id', detectionId);
     } catch (e) {
-      debugPrint('[AdminService] Error al reasignar especie en detección #$detectionId: $e');
+      debugPrint(
+        '[AdminService] Error al reasignar especie en detección #$detectionId: $e',
+      );
       rethrow;
     }
   }
@@ -221,38 +237,124 @@ class AdminService {
     try {
       final response = await _client
           .from('profiles')
-          .select()
+          .select('id, username, avatar_url, created_at, is_active')
           .order('created_at', ascending: false);
 
       return List<Map<String, dynamic>>.from(response);
     } catch (e) {
       debugPrint('[AdminService] Error en getUsersList: $e');
-      return [];
-    }
-  }
-
-  /// Actualiza la información de un usuario (ej. nombre de usuario)
-  Future<void> updateUserProfile(String userId, Map<String, dynamic> updates) async {
-    try {
-      await _client
-          .from('profiles')
-          .update(updates)
-          .eq('id', userId);
-    } catch (e) {
-      debugPrint('[AdminService] Error al actualizar perfil de usuario $userId: $e');
       rethrow;
     }
   }
 
-  /// Elimina un perfil de usuario de la plataforma
-  Future<void> deleteUserProfile(String userId) async {
+  /// Crea un usuario de autenticación y su perfil asociado.
+  Future<void> createUser({
+    required String email,
+    required String password,
+    required String username,
+  }) async {
+    final adminSession = _client.auth.currentSession;
+
+    try {
+      final response = await _client.auth.signUp(
+        email: email,
+        password: password,
+        data: {'username': username},
+      );
+
+      final user = response.user;
+      if (user == null) {
+        throw Exception(
+          'No se pudo crear el usuario. Revisa si el correo requiere confirmación.',
+        );
+      }
+
+      await _client.from('profiles').upsert({
+        'id': user.id,
+        'username': username,
+        'is_active': true,
+      });
+    } catch (e) {
+      debugPrint('[AdminService] Error al crear usuario: $e');
+      rethrow;
+    } finally {
+      if (adminSession != null) {
+        try {
+          await _client.auth.setSession(adminSession.refreshToken ?? '');
+        } catch (_) {
+          // La restauración puede ser innecesaria si signUp no cambió la sesión.
+        }
+      }
+    }
+  }
+
+  /// Actualiza la información de un usuario (ej. nombre de usuario)
+  Future<void> updateUserProfile(
+    String userId,
+    Map<String, dynamic> updates,
+  ) async {
+    try {
+      await _client.from('profiles').update(updates).eq('id', userId);
+    } catch (e) {
+      debugPrint(
+        '[AdminService] Error al actualizar perfil de usuario $userId: $e',
+      );
+      rethrow;
+    }
+  }
+
+  Future<Map<String, dynamic>> getManagedUser(String userId) async {
+    final response = await _client.functions.invoke(
+      'admin-get-user',
+      body: {'user_id': userId},
+    );
+
+    if (response.status >= 400) {
+      throw Exception(
+        response.data?['error']?.toString() ?? 'No se pudo cargar el usuario.',
+      );
+    }
+
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<void> updateManagedUser({
+    required String userId,
+    required String username,
+    String? email,
+    String? password,
+  }) async {
+    final response = await _client.functions.invoke(
+      'admin-update-user',
+      body: {
+        'user_id': userId,
+        'username': username,
+        if (email != null && email.isNotEmpty) 'email': email,
+        if (password != null && password.isNotEmpty) 'password': password,
+      },
+    );
+
+    if (response.status >= 400) {
+      throw Exception(
+        response.data?['error']?.toString() ??
+            'No se pudo actualizar el usuario.',
+      );
+    }
+
+    await updateUserProfile(userId, {'username': username});
+  }
+
+  /// Habilita o deshabilita el acceso del usuario sin eliminar su perfil.
+  Future<void> setUserStatus(String userId, bool isActive) async {
     try {
       await _client
           .from('profiles')
-          .delete()
+          .update({'is_active': isActive})
           .eq('id', userId);
     } catch (e) {
-      debugPrint('[AdminService] Error al eliminar usuario $userId: $e');
+      debugPrint(
+        '[AdminService] Error al cambiar estado del usuario $userId: $e',
+      );
       rethrow;
     }
   }
@@ -264,7 +366,9 @@ class AdminService {
     try {
       final response = await _client
           .from('species')
-          .select()
+          .select(
+            'id, name_common, name_scientific, description, image_url, habitat, created_at',
+          )
           .order('name_common', ascending: true);
 
       return List<Map<String, dynamic>>.from(response);
@@ -304,29 +408,91 @@ class AdminService {
   // ---------------------------------------------------------------------
   // 4. Gestión de Trivias y Logros (Gamificación)
   // ---------------------------------------------------------------------
-  Future<List<Map<String, dynamic>>> getTriviasList() async {
-    try {
-      final response = await _client
-          .from('trivias')
-          .select()
-          .order('id', ascending: false);
-      return List<Map<String, dynamic>>.from(response);
-    } catch (e) {
-      debugPrint('[AdminService] Error en getTriviasList: $e');
-      return [];
+  Future<AdminPageResult> getTriviasPage({
+    required int page,
+    int pageSize = 50,
+    String search = '',
+    String category = '',
+    String difficulty = '',
+  }) async {
+    final from = page * pageSize;
+    final to = from + pageSize - 1;
+
+    var countQuery = _client.from('trivias').select('id');
+    var dataQuery = _client.from('trivias').select();
+
+    if (search.isNotEmpty) {
+      countQuery = countQuery.ilike('question', '%$search%');
+      dataQuery = dataQuery.ilike('question', '%$search%');
     }
+    if (category.isNotEmpty && category != 'Todas') {
+      countQuery = countQuery.eq('category', category);
+      dataQuery = dataQuery.eq('category', category);
+    }
+    if (difficulty.isNotEmpty && difficulty != 'Todas') {
+      countQuery = countQuery.eq('difficulty', difficulty);
+      dataQuery = dataQuery.eq('difficulty', difficulty);
+    }
+
+    final countResponse = await countQuery.count(CountOption.exact);
+    final dataResponse = await dataQuery
+        .order('id', ascending: false)
+        .range(from, to);
+
+    return AdminPageResult(
+      count: countResponse.count,
+      items: List<Map<String, dynamic>>.from(dataResponse),
+    );
   }
 
-  Future<List<Map<String, dynamic>>> getAchievementsList() async {
-    try {
-      final response = await _client
-          .from('achievements')
-          .select()
-          .order('id', ascending: true);
-      return List<Map<String, dynamic>>.from(response);
-    } catch (e) {
-      debugPrint('[AdminService] Error en getAchievementsList: $e');
-      return [];
+  Future<AdminPageResult> getAchievementsPage({
+    required int page,
+    int pageSize = 50,
+    String search = '',
+  }) async {
+    final from = page * pageSize;
+    final to = from + pageSize - 1;
+
+    var countQuery = _client.from('achievements').select('id');
+    var dataQuery = _client.from('achievements').select();
+
+    if (search.isNotEmpty) {
+      countQuery = countQuery.ilike('name', '%$search%');
+      dataQuery = dataQuery.ilike('name', '%$search%');
     }
+
+    final countResponse = await countQuery.count(CountOption.exact);
+    final dataResponse = await dataQuery
+        .order('id', ascending: true)
+        .range(from, to);
+
+    return AdminPageResult(
+      count: countResponse.count,
+      items: List<Map<String, dynamic>>.from(dataResponse),
+    );
+  }
+
+  Future<void> createTrivia(Map<String, dynamic> data) async {
+    await _client.from('trivias').insert(data);
+  }
+
+  Future<void> updateTrivia(int id, Map<String, dynamic> data) async {
+    await _client.from('trivias').update(data).eq('id', id);
+  }
+
+  Future<void> deleteTrivia(int id) async {
+    await _client.from('trivias').delete().eq('id', id);
+  }
+
+  Future<void> createAchievement(Map<String, dynamic> data) async {
+    await _client.from('achievements').insert(data);
+  }
+
+  Future<void> updateAchievement(int id, Map<String, dynamic> data) async {
+    await _client.from('achievements').update(data).eq('id', id);
+  }
+
+  Future<void> deleteAchievement(int id) async {
+    await _client.from('achievements').delete().eq('id', id);
   }
 }
