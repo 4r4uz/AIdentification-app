@@ -38,21 +38,37 @@ SUPABASE_PUBLISHABLE_KEY=tu_clave_publishable
 
 Los modelos de IA deben estar disponibles en `assets/models/`:
 
-- `megadetector_v6_fp16.onnx`
-- `speciesnet_fp16.onnx`
+- `megadetector.onnx`
+- `speciesnet.onnx`
 - `labels.txt`
 
 ## Ejecución local
 
 ```bash
 flutter pub get
-flutter run
+flutter run -t lib/mobile/main.dart
 ```
+
+Panel administrativo web:
+
+```bash
+flutter run -t lib/web/main.dart -d chrome
+```
+
+La aplicación móvil utiliza `lib/mobile/main.dart` y el panel administrativo
+utiliza `lib/web/main.dart`. El panel no debe importar funcionalidades
+dependientes de cámara, modelos ONNX o sensores.
 
 ## Compilación
 
 Android:
 
 ```bash
-flutter build apk --release
+flutter build apk -t lib/mobile/main.dart --release
+```
+
+Web administrativo:
+
+```bash
+flutter build web -t lib/web/main.dart
 ```
