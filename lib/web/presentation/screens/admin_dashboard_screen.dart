@@ -1,14 +1,21 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/theme/colors.dart';
 import '../../core/theme/app_theme.dart';
+import '../../data/models/billing_admin_page.dart';
 import '../../data/services/admin_service.dart';
 import '../widgets/analytics_charts.dart';
+import '../widgets/confidence_chip.dart';
+import '../widgets/detection_thumbnail.dart';
+import '../widgets/filter_bar.dart';
+import '../widgets/profile_avatar.dart';
 import 'admin_login_screen.dart';
 import '../../data/exporters/csv_exporter.dart';
+import '../providers/admin_dashboard_provider.dart';
 
 part 'parts/admin_shell.part.dart';
 part 'parts/dashboard_tab.part.dart';
@@ -17,8 +24,7 @@ part 'parts/species_tab.part.dart';
 part 'parts/users_tab.part.dart';
 part 'parts/common_widgets.part.dart';
 part 'parts/gamification_tab.part.dart';
-
-enum _AdminTab { dashboard, detections, species, gamification, users }
+part 'parts/billing_tab.part.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   const AdminDashboardScreen({super.key});
@@ -30,16 +36,11 @@ class AdminDashboardScreen extends StatefulWidget {
 class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   final AdminService _adminService = AdminService();
 
-  _AdminTab _selectedTab = _AdminTab.dashboard;
-
   late Future<DashboardStats> _statsFuture;
   late Future<List<Map<String, dynamic>>> _recentDetectionsFuture;
   late Future<List<Map<String, dynamic>>> _allDetectionsFuture;
   late Future<List<Map<String, dynamic>>> _speciesFuture;
   late Future<List<Map<String, dynamic>>> _usersFuture;
-  bool _isRefreshing = false;
-  bool _speciesLoaded = false;
-  bool _usersLoaded = false;
 
   @override
   void initState() {
@@ -55,21 +56,23 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     });
   }
 
-  void _loadAll() {
-    switch (_selectedTab) {
-      case _AdminTab.dashboard:
+  void _loadAll(AdminDashboardProvider provider) {
+    switch (provider.selectedTab) {
+      case AdminTab.dashboard:
         _loadDashboard();
         break;
-      case _AdminTab.detections:
+      case AdminTab.detections:
         _loadDetections();
         break;
-      case _AdminTab.species:
+      case AdminTab.species:
         _loadSpecies();
         break;
-      case _AdminTab.users:
+      case AdminTab.users:
         _loadUsers();
         break;
-      case _AdminTab.gamification:
+      case AdminTab.gamification:
+        break;
+      case AdminTab.subscriptions:
         break;
     }
   }
@@ -86,7 +89,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     setState(() {
       _statsFuture = _adminService.getDashboardStats();
       _speciesFuture = _adminService.getSpeciesList();
-      _speciesLoaded = true;
     });
   }
 
@@ -94,7 +96,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     setState(() {
       _statsFuture = _adminService.getDashboardStats();
       _usersFuture = _adminService.getUsersList();
-      _usersLoaded = true;
     });
   }
 
@@ -153,34 +154,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       MaterialPageRoute(builder: (_) => const AdminLoginScreen()),
       (route) => false,
     );
-  }
-
-  Future<void> _handleRefresh() async {
-    setState(() => _isRefreshing = true);
-    _loadAll();
-    try {
-      switch (_selectedTab) {
-        case _AdminTab.dashboard:
-        case _AdminTab.detections:
-          await Future.wait([
-            _statsFuture,
-            _recentDetectionsFuture,
-            _allDetectionsFuture,
-          ]);
-          break;
-        case _AdminTab.species:
-          await Future.wait([_statsFuture, _speciesFuture]);
-          break;
-        case _AdminTab.users:
-          await Future.wait([_statsFuture, _usersFuture]);
-          break;
-        case _AdminTab.gamification:
-          break;
-      }
-    } catch (_) {
-    } finally {
-      if (mounted) setState(() => _isRefreshing = false);
-    }
   }
 
   // ---------------------------------------------------------------------------
@@ -315,7 +288,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     ),
                     const Divider(color: AppColors.divider, height: 24),
                     Center(
-                      child: _DetectionThumbnail(
+                      child: DetectionThumbnail(
                         imagePath: detection['image_path']?.toString(),
                         size: 200,
                         fullWidth: true,
@@ -789,85 +762,121 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     }
   }
 
-  String _titleForTab(_AdminTab tab) {
+  String _titleForTab(AdminTab tab) {
     switch (tab) {
-      case _AdminTab.dashboard:
-        return 'Dashboard / KPIs';
-      case _AdminTab.detections:
-        return 'Avistamientos / Detecciones';
-      case _AdminTab.species:
-        return 'Catálogo de Especies';
-      case _AdminTab.gamification:
-        return 'Gamificación y Logros (Educación)';
-      case _AdminTab.users:
-        return 'Gestión de Usuarios';
+      case AdminTab.dashboard:
+        return 'Dashboard';
+      case AdminTab.detections:
+        return 'Avistamientos';
+      case AdminTab.species:
+        return 'Especies';
+      case AdminTab.gamification:
+        return 'Gamificación';
+      case AdminTab.users:
+        return 'Usuarios';
+      case AdminTab.subscriptions:
+        return 'Suscripciones';
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      body: Row(
-        children: [
-          _Sidebar(
-            onLogout: _handleLogout,
-            selectedTab: _selectedTab,
-            onSelectTab: (tab) {
-              setState(() => _selectedTab = tab);
-              if (tab == _AdminTab.species && !_speciesLoaded) {
-                _loadSpecies();
-              } else if (tab == _AdminTab.users && !_usersLoaded) {
-                _loadUsers();
-              }
-            },
-            onRefresh: _isRefreshing ? null : _handleRefresh,
-            isRefreshing: _isRefreshing,
-          ),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+    return ChangeNotifierProvider(
+      create: (_) {
+        final provider = AdminDashboardProvider();
+        provider.loadAccount();
+        return provider;
+      },
+      child: Consumer<AdminDashboardProvider>(
+        builder: (context, provider, _) {
+          return Scaffold(
+            backgroundColor: AppColors.background,
+            body: Row(
               children: [
-                _TopBar(
-                  title: _titleForTab(_selectedTab),
-                  onRefresh: _isRefreshing ? null : _handleRefresh,
-                  isRefreshing: _isRefreshing,
-                  actionButton: null,
+                _Sidebar(
+                  selectedTab: provider.selectedTab,
+                  onSelectTab: (tab) {
+                    provider.selectTab(tab);
+                    if (tab == AdminTab.species && !provider.speciesLoaded) {
+                      _loadSpecies();
+                      provider.markSpeciesLoaded();
+                    } else if (tab == AdminTab.users && !provider.usersLoaded) {
+                      _loadUsers();
+                      provider.markUsersLoaded();
+                    }
+                  },
                 ),
                 Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.all(28),
-                    child: _buildTabContent(),
+                  child: Stack(
+                    children: [
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _TopBar(
+                            title: _titleForTab(provider.selectedTab),
+                            accountName: provider.accountName,
+                            accountEmail: provider.accountEmail,
+                            avatarUrl: provider.accountAvatarUrl,
+                            onAccount: provider.openAccountPanel,
+                            onLogout: _handleLogout,
+                          ),
+                          Expanded(
+                            child: Padding(
+                              padding: const EdgeInsets.fromLTRB(
+                                20,
+                                20,
+                                20,
+                                12,
+                              ),
+                              child: _buildTabContent(provider),
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (provider.isAccountPanelOpen)
+                        Positioned(
+                          top: 0,
+                          right: 0,
+                          bottom: 0,
+                          width: 340,
+                          child: _AccountPanel(
+                            name: provider.accountName,
+                            email: provider.accountEmail,
+                            avatarUrl: provider.accountAvatarUrl,
+                            role: provider.accountRole,
+                            onClose: provider.closeAccountPanel,
+                          ),
+                        ),
+                    ],
                   ),
                 ),
               ],
             ),
-          ),
-        ],
+          );
+        },
       ),
     );
   }
 
-  Widget _buildTabContent() {
-    switch (_selectedTab) {
-      case _AdminTab.dashboard:
+  Widget _buildTabContent(AdminDashboardProvider provider) {
+    switch (provider.selectedTab) {
+      case AdminTab.dashboard:
         return _DashboardTab(
           statsFuture: _statsFuture,
           allDetectionsFuture: _allDetectionsFuture,
           recentDetectionsFuture: _recentDetectionsFuture,
           onViewDetail: _showDetectionDetailsDialog,
-          onViewAllTap: () =>
-              setState(() => _selectedTab = _AdminTab.detections),
-          onRetry: _loadAll,
+          onViewAllTap: () => provider.selectTab(AdminTab.detections),
+          onRetry: () => _loadAll(provider),
         );
-      case _AdminTab.detections:
+      case AdminTab.detections:
         return _DetectionsTab(
           detectionsFuture: _allDetectionsFuture,
           onViewDetail: _showDetectionDetailsDialog,
           onDelete: _handleDeleteDetection,
           onRetry: _loadDetections,
         );
-      case _AdminTab.species:
+      case AdminTab.species:
         return _SpeciesTab(
           speciesFuture: _speciesFuture,
           onCreate: () => _showSpeciesFormDialog(),
@@ -875,15 +884,17 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           onDelete: _handleDeleteSpecies,
           onRetry: _loadSpecies,
         );
-      case _AdminTab.gamification:
+      case AdminTab.gamification:
         return _GamificationTab(adminService: _adminService);
-      case _AdminTab.users:
+      case AdminTab.users:
         return _UsersTab(
           usersFuture: _usersFuture,
           adminService: _adminService,
           onRefresh: _loadUsers,
           onRetry: _loadUsers,
         );
+      case AdminTab.subscriptions:
+        return _BillingTab(adminService: _adminService);
     }
   }
 }

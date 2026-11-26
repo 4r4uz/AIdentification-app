@@ -157,6 +157,8 @@ Contiene acceso y transformación de datos administrativos:
 
 - `lib/web/data/services/admin_service.dart`: estadísticas, usuarios, especies,
   detecciones y gamificación.
+- `lib/web/data/models/billing_admin_page.dart`: métricas y resultados
+  tipados del módulo administrativo de facturación.
 - `lib/web/data/exporters/csv_exporter.dart`: exportación de datos desde el
   navegador.
 
@@ -194,8 +196,20 @@ Contiene la interfaz del panel:
   administradores.
 - `lib/web/presentation/screens/admin_dashboard_screen.dart`: dashboard y
   módulos administrativos.
+- `lib/web/presentation/screens/parts/`: componentes internos del shell y las
+  pestañas administrativas. Se mantienen como `part` del dashboard mientras
+  conservan dependencias privadas compartidas.
+- `lib/web/presentation/screens/parts/billing_tab.part.dart`: interfaz de
+  consulta de suscripciones, pagos y eventos de facturación.
+- `lib/web/presentation/providers/admin_dashboard_provider.dart`: estado
+  reactivo de navegación, cuenta, carga de pestañas y panel lateral.
 - `lib/web/presentation/widgets/analytics_charts.dart`: gráficos de actividad y
   rareza.
+- `lib/web/presentation/widgets/profile_avatar.dart`: avatar web reutilizable
+  con resolución de Storage y fallback de iniciales.
+- `lib/web/presentation/widgets/filter_bar.dart`,
+  `detection_thumbnail.dart` y `confidence_chip.dart`: componentes comunes
+  independientes del panel.
 
 El dashboard administrativo está concentrado actualmente en
 `admin_dashboard_screen.dart`. Las nuevas pantallas o widgets administrativos
@@ -259,6 +273,12 @@ La autorización administrativa no debe depender únicamente de ocultar botones.
 Las políticas RLS y las validaciones del backend deben restringir las
 operaciones sensibles.
 
+La información de facturación se consulta desde Web mediante
+`supabase/functions/admin-billing`, que valida el rol administrativo antes de
+usar la clave de servicio. Las tablas de facturación deben tener RLS habilitado
+y no conceder acceso directo a los roles `anon` ni `authenticated`. Las claves
+de servicio y de proveedores permanecen exclusivamente en el backend.
+
 ## Reglas de dependencia
 
 1. `lib/mobile/main.dart` solo debe iniciar la aplicación móvil.
@@ -278,6 +298,9 @@ operaciones sensibles.
 10. Los imports deben usar la ruta de la aplicación correspondiente:
     `/mobile/...` para Mobile, `/supabase/...` para infraestructura común y
     rutas relativas dentro de `web/` para Web.
+11. Las consultas de facturación del panel deben pasar por la función
+    administrativa de Supabase; la aplicación Web no debe leer las tablas de
+    pagos directamente ni ejecutar cobros hasta elegir un proveedor.
 
 ## Regla para agregar archivos
 
@@ -294,7 +317,9 @@ Antes de crear un archivo, identificar su responsabilidad:
 | Inicia o configura el panel administrativo | `lib/web/app/` |
 | Es una pantalla o widget administrativo | `lib/web/presentation/` |
 | Consulta datos para el panel | `lib/web/data/services/` |
+| Es un modelo administrativo Web | `lib/web/data/models/` |
 | Exporta datos desde el navegador | `lib/web/data/exporters/` |
+| Es una función administrativa de Supabase | `supabase/functions/` |
 | Es tema o color del panel | `lib/web/core/theme/` |
 | Usa APIs exclusivas del navegador | `lib/web/` |
 

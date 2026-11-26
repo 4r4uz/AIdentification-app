@@ -43,6 +43,7 @@ dependencies:
   # general
   shared_preferences: ^2.5.5
   supabase_flutter: ^2.18.3
+  provider: ^6.1.2
 
 dev_dependencies:
   # general

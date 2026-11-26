@@ -1,112 +1,88 @@
 import '/supabase/supabase_service.dart';
+import '/mobile/features/trivia/data/models/trivia_answer_result.dart';
 import '/mobile/features/trivia/data/models/trivia_model.dart';
-import '/supabase/supabase_extensions.dart';
+import '/mobile/features/trivia/data/models/trivia_progress_summary.dart';
+import '/mobile/features/trivia/data/models/trivia_review_question.dart';
 
 class TriviaService {
   final SupabaseService _supabaseService = SupabaseService();
 
   Future<List<TriviaModel>> getAllTrivias() async {
-    return _supabaseService.client.safeListFrom(
-      _supabaseService.client.from('trivias').select().order('id'),
-      fromJson: TriviaModel.fromJson,
-      errorMessage: 'Error al obtener trivias',
+    final rows = _asRows(
+      await _supabaseService.client.rpc('get_public_trivias'),
     );
+    return rows.map(TriviaModel.fromJson).toList(growable: false);
   }
 
   Future<List<TriviaModel>> getTriviasByCategory(String category) async {
-    return _supabaseService.client.safeListFrom(
-      _supabaseService.client.from('trivias').select().eq('category', category).order('id'),
-      fromJson: TriviaModel.fromJson,
-      errorMessage: 'Error al obtener trivias por categoría',
+    final trivias = await getAllTrivias();
+    return trivias.where((trivia) => trivia.category == category).toList();
+  }
+
+  Future<List<TriviaModel>> getRandomTrivias(
+    int count, {
+    String? difficulty,
+  }) async {
+    final trivias = await getAllTrivias();
+    final filtered = difficulty == null
+        ? trivias
+        : trivias.where((trivia) => trivia.difficulty == difficulty).toList();
+    filtered.shuffle();
+    return filtered.take(count).toList();
+  }
+
+  Future<TriviaAnswerResult> submitAnswer(
+    int triviaId,
+    int selectedOption,
+  ) async {
+    final rows = _asRows(
+      await _supabaseService.client.rpc(
+        'submit_trivia_answer',
+        params: {'p_trivia_id': triviaId, 'p_selected_option': selectedOption},
+      ),
     );
+    if (rows.length != 1) {
+      throw const FormatException(
+        'La respuesta del servidor no contiene un único resultado.',
+      );
+    }
+    return TriviaAnswerResult.fromJson(rows.single);
   }
 
-  Future<List<TriviaModel>> getRandomTrivias(int count, {String? difficulty}) async {
-    try {
-      var query = _supabaseService.client
-          .from('trivias')
-          .select();
+  Future<TriviaProgressSummary?> getMyProgressSummary() async {
+    if (_supabaseService.currentUser == null) return null;
 
-      if (difficulty != null) {
-        query = query.eq('difficulty', difficulty);
-      }
-
-      final response = await query;
-
-      final allTrivias = (response as List)
-          .map((json) => TriviaModel.fromJson(json as Map<String, dynamic>))
-          .toList();
-
-      allTrivias.shuffle();
-      return allTrivias.take(count).toList();
-    } catch (e) {
-      throw Exception('Error al obtener trivias aleatorias: ${e.toString()}');
+    final rows = _asRows(
+      await _supabaseService.client.rpc('get_my_trivia_summary'),
+    );
+    if (rows.length != 1) {
+      throw const FormatException(
+        'No se pudo leer el resumen personal de Trivia.',
+      );
     }
+    return TriviaProgressSummary.fromJson(rows.single);
   }
 
-  Future<Map<String, dynamic>> getUserTriviaStats(String userId) async {
-    try {
-      final response = await _supabaseService.client
-          .from('user_trivia_progress')
-          .select()
-          .eq('user_id', userId);
+  Future<List<TriviaReviewQuestion>> getMyReviewQueue() async {
+    if (_supabaseService.currentUser == null) return const [];
 
-      final List<dynamic> progressList = response as List;
-
-      int totalAttempts = 0;
-      int totalCorrect = 0;
-
-      for (var item in progressList) {
-        totalAttempts += item['attempts'] as int;
-        totalCorrect += item['correct_attempts'] as int;
-      }
-
-      return {
-        'total_attempts': totalAttempts,
-        'total_correct': totalCorrect,
-        'accuracy': totalAttempts > 0 ? totalCorrect / totalAttempts : 0.0,
-      };
-    } catch (e) {
-      return {
-        'total_attempts': 0,
-        'total_correct': 0,
-        'accuracy': 0.0,
-      };
-    }
+    final rows = _asRows(
+      await _supabaseService.client.rpc('get_my_trivia_review_queue'),
+    );
+    return rows.map(TriviaReviewQuestion.fromJson).toList(growable: false);
   }
 
-  Future<void> recordTriviaAttempt(String userId, int triviaId, bool isCorrect) async {
-    try {
-      final existing = await _supabaseService.client
-          .from('user_trivia_progress')
-          .select('attempts, correct_attempts')
-          .eq('user_id', userId)
-          .eq('trivia_id', triviaId)
-          .maybeSingle();
-
-      if (existing != null) {
-        await _supabaseService.client
-            .from('user_trivia_progress')
-            .update({
-              'attempts': (existing['attempts'] as int) + 1,
-              'correct_attempts': (existing['correct_attempts'] as int) + (isCorrect ? 1 : 0),
-              'last_attempt': DateTime.now().toIso8601String(),
-            })
-            .eq('user_id', userId)
-            .eq('trivia_id', triviaId);
-      } else {
-        await _supabaseService.client
-            .from('user_trivia_progress')
-            .insert({
-              'user_id': userId,
-              'trivia_id': triviaId,
-              'attempts': 1,
-              'correct_attempts': isCorrect ? 1 : 0,
-              'last_attempt': DateTime.now().toIso8601String(),
-            });
-      }
-    } catch (e) {
-      throw Exception('Error al registrar intento de trivia: ${e.toString()}');
+  List<Map<String, dynamic>> _asRows(dynamic response) {
+    if (response is! List) {
+      throw const FormatException('Respuesta inesperada del servidor.');
     }
+    return response
+        .map((row) {
+          if (row is! Map) {
+            throw const FormatException('Fila inesperada en la respuesta.');
+          }
+          return Map<String, dynamic>.from(row);
+        })
+        .toList(growable: false);
   }
 }

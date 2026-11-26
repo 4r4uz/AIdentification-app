@@ -6,6 +6,8 @@ import '/mobile/core/service_locator.dart';
 import '/mobile/core/theme/app_theme.dart';
 import '/mobile/core/theme/colors.dart';
 import '/mobile/features/trivia/data/models/trivia_model.dart';
+import '/mobile/features/trivia/data/models/trivia_progress_summary.dart';
+import '/mobile/features/trivia/data/models/trivia_review_question.dart';
 import '/mobile/widgets/common_widgets.dart';
 
 class TriviaScreen extends StatefulWidget {
@@ -25,6 +27,11 @@ class _TriviaScreenState extends State<TriviaScreen> {
 
   List<TriviaModel> _allTrivias = [];
   List<TriviaModel> _trivias = [];
+  List<TriviaReviewQuestion> _reviewQueue = [];
+  TriviaProgressSummary? _progressSummary;
+  List<int?> _correctAnswerIndexes = [];
+  List<int> _pointsAwardedByQuestion = [];
+  List<DateTime?> _nextReviewAtByQuestion = [];
   int _selectedQuestionCount = 5;
   String _selectedDifficulty = 'all';
   String _selectedCategory = 'all';
@@ -41,6 +48,7 @@ class _TriviaScreenState extends State<TriviaScreen> {
   bool _isShowingResults = false;
   bool _isReviewingResults = false;
   bool _isAnswered = false;
+  bool _isSubmittingAnswer = false;
   bool? _isCorrect;
   bool _gameFinished = false;
   bool _finishedByTime = false;
@@ -68,9 +76,13 @@ class _TriviaScreenState extends State<TriviaScreen> {
     });
     try {
       final trivias = await _triviaService.getAllTrivias();
+      final progressSummary = await _triviaService.getMyProgressSummary();
+      final reviewQueue = await _triviaService.getMyReviewQueue();
       if (!mounted) return;
       setState(() {
         _allTrivias = trivias;
+        _progressSummary = progressSummary;
+        _reviewQueue = reviewQueue;
         _isLoading = false;
         _syncQuestionCount();
       });
@@ -252,8 +264,18 @@ class _TriviaScreenState extends State<TriviaScreen> {
     });
   }
 
-  void _startGame() {
-    final questions = _availableTrivias.toList()..shuffle();
+  void _startGame({bool reviewOnly = false}) {
+    final available = _availableTrivias;
+    final reviewIds = _reviewQueue.map((question) => question.triviaId).toSet();
+    final dueQuestions = available
+        .where((trivia) => reviewIds.contains(trivia.id))
+        .toList();
+    final newQuestions =
+        available.where((trivia) => !reviewIds.contains(trivia.id)).toList()
+          ..shuffle();
+    final questions = reviewOnly
+        ? dueQuestions
+        : [...dueQuestions, ...newQuestions];
     if (questions.isEmpty) return;
     final selectedQuestions = questions.take(_selectedQuestionCount).toList();
     setState(() {
@@ -263,7 +285,14 @@ class _TriviaScreenState extends State<TriviaScreen> {
       _correctAnswers = 0;
       _selectedAnswerIndex = null;
       _selectedAnswers = List<int?>.filled(selectedQuestions.length, null);
+      _correctAnswerIndexes = List<int?>.filled(selectedQuestions.length, null);
+      _pointsAwardedByQuestion = List<int>.filled(selectedQuestions.length, 0);
+      _nextReviewAtByQuestion = List<DateTime?>.filled(
+        selectedQuestions.length,
+        null,
+      );
       _isAnswered = false;
+      _isSubmittingAnswer = false;
       _isCorrect = null;
       _gameFinished = false;
       _finishedByTime = false;
@@ -288,6 +317,7 @@ class _TriviaScreenState extends State<TriviaScreen> {
         timer.cancel();
         return;
       }
+      if (_isSubmittingAnswer) return;
       if (_remainingSeconds <= 1) {
         setState(() => _remainingSeconds = 0);
         _finishGame(timeExpired: true);
@@ -304,54 +334,79 @@ class _TriviaScreenState extends State<TriviaScreen> {
   }
 
   Future<void> _handleAnswer(int selectedIndex) async {
-    if (_isAnswered || _gameFinished) return;
-
-    final answeredQuestionIndex = _currentIndex;
-    final currentTrivia = _trivias[_currentIndex];
-    final isCorrect = selectedIndex == currentTrivia.correctAnswer;
+    if (_isAnswered || _isSubmittingAnswer || _gameFinished) return;
 
     setState(() {
-      _isAnswered = true;
+      _isSubmittingAnswer = true;
       _selectedAnswerIndex = selectedIndex;
       _selectedAnswers[_currentIndex] = selectedIndex;
-      _isCorrect = isCorrect;
-      if (isCorrect) {
-        _score += currentTrivia.points;
-        _correctAnswers++;
-      }
     });
+    _timer?.cancel();
 
-    final user = _authService.currentUser;
-    if (user != null) {
-      unawaited(_recordTriviaAttempt(user.id, currentTrivia.id, isCorrect));
+    try {
+      final currentTrivia = _trivias[_currentIndex];
+      final result = await _triviaService.submitAnswer(
+        currentTrivia.id,
+        selectedIndex,
+      );
+      if (!mounted) return;
+      setState(() {
+        _isSubmittingAnswer = false;
+        _isAnswered = true;
+        _isCorrect = result.isCorrect;
+        _correctAnswerIndexes[_currentIndex] = result.correctAnswer;
+        _pointsAwardedByQuestion[_currentIndex] = result.pointsAwarded;
+        _nextReviewAtByQuestion[_currentIndex] = result.nextReviewAt;
+        if (result.isCorrect) _correctAnswers++;
+        _score += result.pointsAwarded;
+        _reviewQueue.removeWhere(
+          (question) => question.triviaId == currentTrivia.id,
+        );
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _isSubmittingAnswer = false;
+        _selectedAnswerIndex = null;
+        _selectedAnswers[_currentIndex] = null;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('No se pudo comprobar la respuesta: $error'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      _startTimer();
     }
-
-    await Future.delayed(const Duration(milliseconds: 1800));
-    if (!mounted ||
-        !_isInGame ||
-        _gameFinished ||
-        !_isAnswered ||
-        _currentIndex != answeredQuestionIndex) {
-      return;
-    }
-
-    _advanceQuestion();
   }
 
-  Future<void> _recordTriviaAttempt(
-    String userId,
-    int triviaId,
-    bool isCorrect,
-  ) async {
+  Future<void> _refreshTriviaProgress() async {
+    if (_authService.currentUser == null) return;
     try {
-      await _triviaService.recordTriviaAttempt(userId, triviaId, isCorrect);
+      final summary = await _triviaService.getMyProgressSummary();
+      final reviewQueue = await _triviaService.getMyReviewQueue();
+      if (!mounted) return;
+      setState(() {
+        _progressSummary = summary;
+        _reviewQueue = reviewQueue;
+      });
     } catch (error) {
-      debugPrint('Error recording trivia attempt: $error');
+      debugPrint('Error refreshing trivia progress: $error');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'La respuesta se guardó, pero no se pudo actualizar tu progreso: $error',
+            ),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     }
   }
 
   void _advanceQuestion() {
-    if (!_isAnswered || _gameFinished) return;
+    if (!_isAnswered || _isSubmittingAnswer || _gameFinished) return;
     if (_currentIndex < _trivias.length - 1) {
       setState(() {
         _currentIndex++;
@@ -359,6 +414,7 @@ class _TriviaScreenState extends State<TriviaScreen> {
         _isCorrect = null;
         _selectedAnswerIndex = null;
       });
+      _startTimer();
     } else {
       _finishGame();
     }
@@ -376,6 +432,7 @@ class _TriviaScreenState extends State<TriviaScreen> {
       _isReviewingResults = false;
       _elapsedSeconds = _gameStopwatch.elapsed.inSeconds;
     });
+    unawaited(_refreshTriviaProgress());
   }
 
   void _returnToConfiguration() {
@@ -521,7 +578,8 @@ class _TriviaScreenState extends State<TriviaScreen> {
     final total = _trivias.length;
     final incorrect = _selectedAnswers.indexed.where((entry) {
       final (index, answer) = entry;
-      return answer != null && answer != _trivias[index].correctAnswer;
+      final correctAnswer = _correctAnswerIndexes[index];
+      return answer != null && correctAnswer != null && answer != correctAnswer;
     }).length;
     final unanswered = total - _correctAnswers - incorrect;
     final accuracy = total == 0 ? 0 : (_correctAnswers * 100 ~/ total);
@@ -591,6 +649,14 @@ class _TriviaScreenState extends State<TriviaScreen> {
                 textAlign: TextAlign.center,
                 style: TextStyle(color: palette.textSecondary, fontSize: 15),
               ),
+              if (_authService.currentUser == null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'Inicia sesión para guardar XP y sincronizar tus repasos.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: palette.textSecondary, fontSize: 13),
+                ),
+              ],
               const SizedBox(height: 18),
               Wrap(
                 alignment: WrapAlignment.center,
@@ -625,7 +691,7 @@ class _TriviaScreenState extends State<TriviaScreen> {
                   _ResultMetric(
                     icon: Icons.stars_rounded,
                     value: '$_score',
-                    label: 'Puntos',
+                    label: 'XP ganados',
                     color: palette.warning,
                   ),
                 ],
@@ -687,7 +753,9 @@ class _TriviaScreenState extends State<TriviaScreen> {
         final questionIndex = index - 1;
         final trivia = _trivias[questionIndex];
         final selectedAnswer = _selectedAnswers[questionIndex];
-        final isCorrect = selectedAnswer == trivia.correctAnswer;
+        final correctAnswer = _correctAnswerIndexes[questionIndex];
+        final isCorrect =
+            selectedAnswer != null && selectedAnswer == correctAnswer;
         final wasAnswered = selectedAnswer != null;
         final statusColor = !wasAnswered
             ? context.palette.textSecondary
@@ -760,14 +828,21 @@ class _TriviaScreenState extends State<TriviaScreen> {
                   isCorrect: isCorrect,
                   isNeutral: false,
                 ),
-              if (wasAnswered && !isCorrect) const SizedBox(height: 8),
-              if (!isCorrect)
+              if (wasAnswered &&
+                  correctAnswer != null &&
+                  selectedAnswer != correctAnswer) ...[
+                const SizedBox(height: 8),
                 _ReviewAnswer(
                   label: 'Respuesta correcta',
-                  text: trivia.options[trivia.correctAnswer],
+                  text: trivia.options[correctAnswer],
                   isCorrect: true,
                   isNeutral: !wasAnswered,
                 ),
+              ],
+              if ((trivia.explanation ?? '').isNotEmpty) ...[
+                const SizedBox(height: 10),
+                Text(trivia.explanation!, style: AppTheme.bodyStyle(context)),
+              ],
             ],
           ),
         );
@@ -777,6 +852,10 @@ class _TriviaScreenState extends State<TriviaScreen> {
 
   Widget _buildConfiguration(BuildContext context) {
     final availableCount = _availableTrivias.length;
+    final reviewIds = _reviewQueue.map((question) => question.triviaId).toSet();
+    final dueReviewCount = _availableTrivias
+        .where((trivia) => reviewIds.contains(trivia.id))
+        .length;
     final questionCounts = _availableQuestionCounts;
 
     return ListView(
@@ -823,7 +902,8 @@ class _TriviaScreenState extends State<TriviaScreen> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      '$availableCount preguntas disponibles con estos filtros',
+                      '$availableCount preguntas disponibles · '
+                      '$dueReviewCount para repasar',
                       style: AppTheme.bodyStyle(context),
                     ),
                   ],
@@ -832,6 +912,8 @@ class _TriviaScreenState extends State<TriviaScreen> {
             ],
           ),
         ),
+        const SizedBox(height: 14),
+        _buildTriviaProgressCard(context, dueReviewCount),
         const SizedBox(height: 24),
         _ConfigSection(
           icon: Icons.format_list_numbered_rounded,
@@ -916,6 +998,17 @@ class _TriviaScreenState extends State<TriviaScreen> {
           ),
         ),
         const SizedBox(height: 26),
+        if (dueReviewCount > 0) ...[
+          SizedBox(
+            height: 52,
+            child: OutlinedButton.icon(
+              onPressed: () => _startGame(reviewOnly: true),
+              icon: const Icon(Icons.replay_circle_filled_rounded),
+              label: Text('Repasar $dueReviewCount preguntas vencidas'),
+            ),
+          ),
+          const SizedBox(height: 10),
+        ],
         SizedBox(
           height: 56,
           child: FilledButton.icon(
@@ -930,6 +1023,76 @@ class _TriviaScreenState extends State<TriviaScreen> {
         ),
       ],
     );
+  }
+
+  Widget _buildTriviaProgressCard(BuildContext context, int dueReviewCount) {
+    final user = _authService.currentUser;
+    final summary = _progressSummary;
+    final palette = context.palette;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: palette.surface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: palette.border),
+      ),
+      child: user == null
+          ? Row(
+              children: [
+                Icon(Icons.sync_disabled_rounded, color: palette.primary),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Inicia sesión para guardar XP y sincronizar tus repasos.',
+                    style: AppTheme.bodyStyle(context),
+                  ),
+                ),
+              ],
+            )
+          : Row(
+              children: [
+                Expanded(
+                  child: _ProgressValue(
+                    label: 'XP',
+                    value: '${summary?.totalPoints ?? 0}',
+                    icon: Icons.stars_rounded,
+                  ),
+                ),
+                Expanded(
+                  child: _ProgressValue(
+                    label: 'Rango',
+                    value: _naturalistRank(summary?.totalPoints ?? 0),
+                    icon: Icons.workspace_premium_rounded,
+                  ),
+                ),
+                Expanded(
+                  child: _ProgressValue(
+                    label: 'Por repasar',
+                    value: '$dueReviewCount',
+                    icon: Icons.replay_rounded,
+                  ),
+                ),
+              ],
+            ),
+    );
+  }
+
+  String _naturalistRank(int points) {
+    if (points >= 1500) return 'Experto';
+    if (points >= 700) return 'Investigador';
+    if (points >= 300) return 'Naturalista';
+    if (points >= 100) return 'Explorador';
+    return 'Aprendiz';
+  }
+
+  String _nextReviewLabel(DateTime? nextReviewAt) {
+    if (nextReviewAt == null) return '';
+    final remaining = nextReviewAt.difference(DateTime.now());
+    if (remaining.inDays >= 1) return '${remaining.inDays} d';
+    if (remaining.inHours >= 1) return '${remaining.inHours} h';
+    return '${remaining.inMinutes.clamp(1, 59)} min';
   }
 
   Widget _buildGame(BuildContext context) {
@@ -963,11 +1126,25 @@ class _TriviaScreenState extends State<TriviaScreen> {
                     _buildQuestionCard(),
                     const SizedBox(height: 18),
                     _buildAnswers(),
+                    if (_isSubmittingAnswer) ...[
+                      const SizedBox(height: 10),
+                      const LinearProgressIndicator(),
+                      const SizedBox(height: 8),
+                      const Center(child: Text('Comprobando respuesta...')),
+                    ],
                     if (_isAnswered) ...[
                       const SizedBox(height: 4),
                       _AnswerFeedback(
                         isCorrect: _isCorrect!,
-                        isLastQuestion: _currentIndex == _trivias.length - 1,
+                        message: _answerFeedbackMessage(),
+                        explanation: _trivias[_currentIndex].explanation,
+                        nextReviewLabel: _nextReviewLabel(
+                          _nextReviewAtByQuestion[_currentIndex],
+                        ),
+                        nextButtonLabel: _currentIndex == _trivias.length - 1
+                            ? 'Ver resultados'
+                            : 'Siguiente pregunta',
+                        onContinue: _advanceQuestion,
                       ),
                     ],
                   ],
@@ -978,6 +1155,21 @@ class _TriviaScreenState extends State<TriviaScreen> {
         ),
       ),
     );
+  }
+
+  String _answerFeedbackMessage() {
+    if (!_isCorrect!) {
+      return 'No fue esta vez. La respuesta correcta está marcada en verde.';
+    }
+    if (_authService.currentUser == null) {
+      return '¡Correcto! Inicia sesión para guardar XP y programar repasos.';
+    }
+    if (_pointsAwardedByQuestion[_currentIndex] > 0) {
+      return '¡Correcto! Ganaste '
+          '${_pointsAwardedByQuestion[_currentIndex]} XP.';
+    }
+    return '¡Correcto! Esta respuesta quedó registrada; sigue practicando '
+        'y volveremos a mostrarla para reforzar tu memoria.';
   }
 
   Widget _buildProgressIndicator(BuildContext context) {
@@ -1107,7 +1299,7 @@ class _TriviaScreenState extends State<TriviaScreen> {
                   borderRadius: BorderRadius.circular(14),
                 ),
                 child: Text(
-                  '+${trivia.points} pts',
+                  'Hasta ${trivia.points} XP',
                   style: TextStyle(
                     color: palette.primary,
                     fontSize: 13,
@@ -1139,7 +1331,8 @@ class _TriviaScreenState extends State<TriviaScreen> {
 
     return Column(
       children: List.generate(trivia.options.length, (index) {
-        final isCorrectOption = index == trivia.correctAnswer;
+        final correctAnswer = _correctAnswerIndexes[_currentIndex];
+        final isCorrectOption = correctAnswer != null && index == correctAnswer;
         final isSelectedOption = index == _selectedAnswerIndex;
         final isRevealedCorrect = _isAnswered && isCorrectOption;
         final isRevealedIncorrect =
@@ -1165,7 +1358,9 @@ class _TriviaScreenState extends State<TriviaScreen> {
             color: backgroundColor,
             borderRadius: BorderRadius.circular(22),
             child: InkWell(
-              onTap: _isAnswered ? null : () => _handleAnswer(index),
+              onTap: _isAnswered || _isSubmittingAnswer
+                  ? null
+                  : () => _handleAnswer(index),
               borderRadius: BorderRadius.circular(22),
               child: Container(
                 constraints: const BoxConstraints(minHeight: 58),
@@ -1405,6 +1600,43 @@ class _ResultMetric extends StatelessWidget {
   }
 }
 
+class _ProgressValue extends StatelessWidget {
+  final String label;
+  final String value;
+  final IconData icon;
+
+  const _ProgressValue({
+    required this.label,
+    required this.value,
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Icon(icon, color: context.palette.primary, size: 20),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: context.palette.textPrimary,
+            fontSize: 13,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          label,
+          textAlign: TextAlign.center,
+          style: TextStyle(color: context.palette.textSecondary, fontSize: 11),
+        ),
+      ],
+    );
+  }
+}
+
 class _ReviewAnswer extends StatelessWidget {
   final String label;
   final String text;
@@ -1460,11 +1692,19 @@ class _ReviewAnswer extends StatelessWidget {
 
 class _AnswerFeedback extends StatelessWidget {
   final bool isCorrect;
-  final bool isLastQuestion;
+  final String message;
+  final String? explanation;
+  final String nextReviewLabel;
+  final String nextButtonLabel;
+  final VoidCallback onContinue;
 
   const _AnswerFeedback({
     required this.isCorrect,
-    required this.isLastQuestion,
+    required this.message,
+    required this.explanation,
+    required this.nextReviewLabel,
+    required this.nextButtonLabel,
+    required this.onContinue,
   });
 
   @override
@@ -1474,34 +1714,58 @@ class _AnswerFeedback extends StatelessWidget {
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: color.withValues(alpha: 0.25)),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(
-            isCorrect ? Icons.check_circle_rounded : Icons.cancel_rounded,
-            color: color,
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              isCorrect
-                  ? '¡Correcto!'
-                  : 'Incorrecto. La respuesta correcta está marcada en verde.',
-              style: TextStyle(
-                color: palette.textPrimary,
-                fontWeight: FontWeight.w700,
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                isCorrect ? Icons.check_circle_rounded : Icons.cancel_rounded,
+                color: color,
               ),
-            ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  message,
+                  style: TextStyle(
+                    color: palette.textPrimary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 8),
-          Icon(
-            isLastQuestion ? Icons.fact_check_rounded : Icons.chevron_right,
-            color: color,
+          if (nextReviewLabel.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Próximo repaso: $nextReviewLabel',
+              style: TextStyle(color: palette.textSecondary),
+            ),
+          ],
+          if (explanation != null && explanation!.trim().isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Text(
+              explanation!,
+              style: TextStyle(color: palette.textPrimary, height: 1.35),
+            ),
+          ],
+          const SizedBox(height: 10),
+          Align(
+            alignment: Alignment.centerRight,
+            child: FilledButton.tonalIcon(
+              onPressed: onContinue,
+              icon: Icon(
+                isCorrect ? Icons.arrow_forward_rounded : Icons.school_rounded,
+              ),
+              label: Text(nextButtonLabel),
+            ),
           ),
         ],
       ),

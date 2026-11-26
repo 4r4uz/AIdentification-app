@@ -52,6 +52,13 @@ class _DetectionsTab extends StatefulWidget {
 
 class _DetectionsTabState extends State<_DetectionsTab> {
   String _searchQuery = '';
+  final ScrollController _scrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
 
   void _exportToCSV(List<Map<String, dynamic>> detections) {
     CsvExporter.exportDetections(detections);
@@ -106,7 +113,7 @@ class _DetectionsTabState extends State<_DetectionsTab> {
             Row(
               children: [
                 Expanded(
-                  child: _FilterBar(
+                  child: FilterBar(
                     searchHint:
                         'Buscar por especie, nombre científico o usuario...',
                     onSearchChanged: (q) =>
@@ -222,26 +229,35 @@ class _DetectionsTabState extends State<_DetectionsTab> {
                             ),
                             // CUERPO DE LA TABLA CON SCROLL Y HOVER
                             Expanded(
-                              child: ListView.separated(
-                                itemCount: filtered.length,
-                                separatorBuilder: (_, _) => Divider(
-                                  color: AppColors.divider.withValues(
-                                    alpha: 0.45,
+                              child: Scrollbar(
+                                controller: _scrollController,
+                                thumbVisibility: true,
+                                thickness: 6,
+                                radius: const Radius.circular(4),
+                                interactive: true,
+                                child: ListView.separated(
+                                  controller: _scrollController,
+                                  padding: const EdgeInsets.only(right: 10),
+                                  itemCount: filtered.length,
+                                  separatorBuilder: (_, _) => Divider(
+                                    color: AppColors.divider.withValues(
+                                      alpha: 0.45,
+                                    ),
+                                    height: 1,
                                   ),
-                                  height: 1,
+                                  itemBuilder: (context, index) {
+                                    final detection = filtered[index];
+                                    return _ModernDetectionRow(
+                                      detection: detection,
+                                      onViewDetail: () =>
+                                          widget.onViewDetail(detection),
+                                      onDelete: () {
+                                        final id = detection['id'] as int?;
+                                        if (id != null) widget.onDelete(id);
+                                      },
+                                    );
+                                  },
                                 ),
-                                itemBuilder: (context, index) {
-                                  final detection = filtered[index];
-                                  return _ModernDetectionRow(
-                                    detection: detection,
-                                    onViewDetail: () =>
-                                        widget.onViewDetail(detection),
-                                    onDelete: () {
-                                      final id = detection['id'] as int?;
-                                      if (id != null) widget.onDelete(id);
-                                    },
-                                  );
-                                },
                               ),
                             ),
                           ],
@@ -313,8 +329,6 @@ class _ModernDetectionRowState extends State<_ModernDetectionRow> {
         ? '${lat.toStringAsFixed(3)}, ${lng.toStringAsFixed(3)}'
         : 'No disponible';
 
-    final initial = username.isNotEmpty ? username[0].toUpperCase() : '?';
-
     return MouseRegion(
       onEnter: (_) => setState(() => _isHovered = true),
       onExit: (_) => setState(() => _isHovered = false),
@@ -342,7 +356,7 @@ class _ModernDetectionRowState extends State<_ModernDetectionRow> {
                             : AppColors.divider,
                       ),
                     ),
-                    child: _DetectionThumbnail(
+                    child: DetectionThumbnail(
                       imagePath: detection['image_path']?.toString(),
                       size: 46,
                     ),
@@ -424,25 +438,10 @@ class _ModernDetectionRowState extends State<_ModernDetectionRow> {
                 flex: 2,
                 child: Row(
                   children: [
-                    CircleAvatar(
+                    ProfileAvatar(
+                      name: username,
+                      avatarUrl: avatarUrl,
                       radius: 13,
-                      backgroundColor: AppColors.primary.withValues(
-                        alpha: 0.18,
-                      ),
-                      backgroundImage:
-                          (avatarUrl != null && avatarUrl.isNotEmpty)
-                          ? NetworkImage(avatarUrl)
-                          : null,
-                      child: (avatarUrl == null || avatarUrl.isEmpty)
-                          ? Text(
-                              initial,
-                              style: const TextStyle(
-                                color: AppColors.primary,
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            )
-                          : null,
                     ),
                     const SizedBox(width: 8),
                     Expanded(
@@ -465,7 +464,7 @@ class _ModernDetectionRowState extends State<_ModernDetectionRow> {
                 flex: 2,
                 child: Align(
                   alignment: Alignment.centerLeft,
-                  child: _ConfidenceChip(percent: confidence),
+                  child: ConfidenceChip(percent: confidence),
                 ),
               ),
 

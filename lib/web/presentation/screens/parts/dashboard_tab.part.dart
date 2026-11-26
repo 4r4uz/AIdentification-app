@@ -1,6 +1,6 @@
 part of '../admin_dashboard_screen.dart';
 
-class _DashboardTab extends StatelessWidget {
+class _DashboardTab extends StatefulWidget {
   final Future<DashboardStats> statsFuture;
   final Future<List<Map<String, dynamic>>> allDetectionsFuture;
   final Future<List<Map<String, dynamic>>> recentDetectionsFuture;
@@ -18,103 +18,129 @@ class _DashboardTab extends StatelessWidget {
   });
 
   @override
+  State<_DashboardTab> createState() => _DashboardTabState();
+}
+
+class _DashboardTabState extends State<_DashboardTab> {
+  final ScrollController _scrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          FutureBuilder<DashboardStats>(
-            future: statsFuture,
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const _KpiRowSkeleton();
-              }
-              if (snapshot.hasError) {
-                return _ErrorState(
-                  message: 'No se pudieron cargar las estadísticas.',
-                  onRetry: onRetry,
-                );
-              }
-              final stats = snapshot.data ?? DashboardStats.empty();
-              return _KpiRow(stats: stats);
-            },
-          ),
-          const SizedBox(height: 28),
-          FutureBuilder<List<Map<String, dynamic>>>(
-            future: allDetectionsFuture,
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const SizedBox(
-                  height: 300,
-                  child: Center(
-                    child: CircularProgressIndicator(color: AppColors.primary),
-                  ),
-                );
-              }
-              return AnalyticsChartsSection(detections: snapshot.data ?? []);
-            },
-          ),
-          const SizedBox(height: 28),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text('Últimos avistamientos', style: AppTheme.headingStyle()),
-              TextButton.icon(
-                onPressed: onViewAllTap,
-                icon: const Icon(
-                  Icons.arrow_forward,
-                  size: 16,
-                  color: AppColors.primary,
-                ),
-                label: const Text(
-                  'Ver todos',
-                  style: TextStyle(
-                    color: AppColors.primary,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          FutureBuilder<List<Map<String, dynamic>>>(
-            future: recentDetectionsFuture,
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 40),
-                  child: Center(
-                    child: CircularProgressIndicator(color: AppColors.primary),
-                  ),
-                );
-              }
-              if (snapshot.hasError) {
-                return _ErrorState(
-                  message: 'No se pudieron cargar los avistamientos recientes.',
-                  onRetry: onRetry,
-                );
-              }
-              final detections = snapshot.data ?? [];
-              if (detections.isEmpty) {
-                return const _EmptyState(
-                  icon: Icons.travel_explore_outlined,
-                  message:
-                      'Aún no hay avistamientos registrados en la plataforma.',
-                );
-              }
-              return Column(
-                children: detections
-                    .map(
-                      (d) => _RecentDetectionTile(
-                        detection: d,
-                        onTap: () => onViewDetail(d),
+    return Scrollbar(
+      controller: _scrollController,
+      thumbVisibility: true,
+      thickness: 6,
+      radius: const Radius.circular(4),
+      interactive: true,
+      child: SingleChildScrollView(
+        controller: _scrollController,
+        padding: const EdgeInsets.only(right: 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            FutureBuilder<DashboardStats>(
+              future: widget.statsFuture,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const _KpiRowSkeleton();
+                }
+                if (snapshot.hasError) {
+                  return _ErrorState(
+                    message: 'No se pudieron cargar las estadísticas.',
+                    onRetry: widget.onRetry,
+                  );
+                }
+                final stats = snapshot.data ?? DashboardStats.empty();
+                return _KpiRow(stats: stats);
+              },
+            ),
+            const SizedBox(height: 28),
+            FutureBuilder<List<Map<String, dynamic>>>(
+              future: widget.allDetectionsFuture,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const SizedBox(
+                    height: 300,
+                    child: Center(
+                      child: CircularProgressIndicator(
+                        color: AppColors.primary,
                       ),
-                    )
-                    .toList(),
-              );
-            },
-          ),
-        ],
+                    ),
+                  );
+                }
+                return AnalyticsChartsSection(detections: snapshot.data ?? []);
+              },
+            ),
+            const SizedBox(height: 28),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('Últimos avistamientos', style: AppTheme.headingStyle()),
+                TextButton.icon(
+                  onPressed: widget.onViewAllTap,
+                  icon: const Icon(
+                    Icons.arrow_forward,
+                    size: 16,
+                    color: AppColors.primary,
+                  ),
+                  label: const Text(
+                    'Ver todos',
+                    style: TextStyle(
+                      color: AppColors.primary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            FutureBuilder<List<Map<String, dynamic>>>(
+              future: widget.recentDetectionsFuture,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 40),
+                    child: Center(
+                      child: CircularProgressIndicator(
+                        color: AppColors.primary,
+                      ),
+                    ),
+                  );
+                }
+                if (snapshot.hasError) {
+                  return _ErrorState(
+                    message:
+                        'No se pudieron cargar los avistamientos recientes.',
+                    onRetry: widget.onRetry,
+                  );
+                }
+                final detections = snapshot.data ?? [];
+                if (detections.isEmpty) {
+                  return const _EmptyState(
+                    icon: Icons.travel_explore_outlined,
+                    message: 'Aún no hay avistamientos registrados en la plataforma.',
+                  );
+                }
+                return Column(
+                  children: detections
+                      .map(
+                        (d) => _RecentDetectionTile(
+                          detection: d,
+                          onTap: () => widget.onViewDetail(d),
+                        ),
+                      )
+                      .toList(),
+                );
+              },
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -299,7 +325,7 @@ class _RecentDetectionTile extends StatelessWidget {
           padding: const EdgeInsets.all(14),
           child: Row(
             children: [
-              _DetectionThumbnail(
+              DetectionThumbnail(
                 imagePath: detection['image_path']?.toString(),
                 size: 48,
               ),
@@ -332,7 +358,7 @@ class _RecentDetectionTile extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 12),
-              _ConfidenceChip(percent: confidence),
+              ConfidenceChip(percent: confidence),
               const SizedBox(width: 8),
               const Icon(
                 Icons.chevron_right,

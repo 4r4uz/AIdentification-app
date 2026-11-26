@@ -21,6 +21,13 @@ class _SpeciesTab extends StatefulWidget {
 
 class _SpeciesTabState extends State<_SpeciesTab> {
   String _searchQuery = '';
+  final ScrollController _scrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
 
   Future<void> _showSpeciesDetails(
     BuildContext context,
@@ -62,7 +69,7 @@ class _SpeciesTabState extends State<_SpeciesTab> {
                 if ((species['image_url']?.toString() ?? '').isNotEmpty)
                   ClipRRect(
                     borderRadius: BorderRadius.circular(12),
-                    child: _DetectionThumbnail(
+                    child: DetectionThumbnail(
                       imagePath: species['image_url']?.toString(),
                       size: 220,
                       fullWidth: true,
@@ -187,7 +194,7 @@ class _SpeciesTabState extends State<_SpeciesTab> {
             Row(
               children: [
                 Expanded(
-                  child: _FilterBar(
+                  child: FilterBar(
                     searchHint: 'Buscar especie por nombre común, científico o hábitat...',
                     onSearchChanged: (q) =>
                         setState(() => _searchQuery = q.toLowerCase().trim()),
@@ -258,18 +265,27 @@ class _SpeciesTabState extends State<_SpeciesTab> {
                       icon: Icons.search_off_outlined,
                       message: 'Ninguna especie coincide con tu búsqueda.',
                     )
-                  : ListView.separated(
-                      itemCount: filtered.length,
-                      separatorBuilder: (_, _) => const SizedBox(height: 6),
-                      itemBuilder: (context, index) {
-                        final item = filtered[index];
-                        return _SpeciesCard(
-                          species: item,
-                          onTap: () => _showSpeciesDetails(context, item),
-                          onEdit: () => widget.onEdit(item),
-                          onDelete: () => widget.onDelete(item),
-                        );
-                      },
+                  : Scrollbar(
+                      controller: _scrollController,
+                      thumbVisibility: true,
+                      thickness: 6,
+                      radius: const Radius.circular(4),
+                      interactive: true,
+                      child: ListView.separated(
+                        controller: _scrollController,
+                        padding: const EdgeInsets.only(right: 10),
+                        itemCount: filtered.length,
+                        separatorBuilder: (_, _) => const SizedBox(height: 6),
+                        itemBuilder: (context, index) {
+                          final item = filtered[index];
+                          return _SpeciesCard(
+                            species: item,
+                            onTap: () => _showSpeciesDetails(context, item),
+                            onEdit: () => widget.onEdit(item),
+                            onDelete: () => widget.onDelete(item),
+                          );
+                        },
+                      ),
                     ),
             ),
           ],
@@ -308,7 +324,7 @@ class _SpeciesCard extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _DetectionThumbnail(
+            DetectionThumbnail(
               imagePath: imageUrl,
               size: 46,
               bucketName: 'species',

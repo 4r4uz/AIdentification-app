@@ -42,9 +42,13 @@ Deno.serve(async (req) => {
 
     const body = await req.json();
     const userId = body.user_id?.toString();
-    const username = body.username?.toString().trim();
     if (!userId) throw new Error('El ID del usuario es obligatorio.');
-    if (!username) throw new Error('El nombre de usuario es obligatorio.');
+    const username = typeof body.username === 'string'
+      ? body.username.trim()
+      : undefined;
+    if (username !== undefined && !username) {
+      throw new Error('El nombre de usuario no puede estar vacío.');
+    }
 
     const attributes: Record<string, unknown> = {};
     if (body.email?.toString().trim()) {
@@ -53,6 +57,15 @@ Deno.serve(async (req) => {
     if (body.password?.toString()) {
       attributes.password = body.password.toString();
     }
+    if (typeof body.is_active === 'boolean') {
+      if (!body.is_active && userId === callerAuth.user.id) {
+        throw new Error('No puedes desactivar tu propia cuenta administrativa.');
+      }
+      attributes.ban_duration = body.is_active ? 'none' : '876000h';
+    }
+    if (Object.keys(attributes).length === 0 && username === undefined) {
+      throw new Error('No hay cambios para guardar.');
+    }
 
     if (Object.keys(attributes).length > 0) {
       const { error: authError } =
@@ -60,11 +73,19 @@ Deno.serve(async (req) => {
       if (authError) throw authError;
     }
 
-    const { error: profileErrorUpdate } = await adminClient
-      .from('profiles')
-      .update({ username })
-      .eq('id', userId);
-    if (profileErrorUpdate) throw profileErrorUpdate;
+    const profileUpdates: Record<string, unknown> = {};
+    if (username !== undefined) profileUpdates.username = username;
+    if (typeof body.is_active === 'boolean') {
+      profileUpdates.is_active = body.is_active;
+    }
+
+    if (Object.keys(profileUpdates).length > 0) {
+      const { error: profileErrorUpdate } = await adminClient
+        .from('profiles')
+        .update(profileUpdates)
+        .eq('id', userId);
+      if (profileErrorUpdate) throw profileErrorUpdate;
+    }
 
     return new Response(
       JSON.stringify({ success: true }),

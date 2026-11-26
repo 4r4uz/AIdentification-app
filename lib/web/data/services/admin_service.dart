@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../supabase/supabase_service.dart';
+import '../models/billing_admin_page.dart';
 
 /// Modelo tipado para las estadísticas del dashboard administrativo.
 class DashboardStats {
@@ -38,6 +39,39 @@ class AdminPageResult {
 /// Alineada 100% con el esquema SQL de AnimalPedia.
 class AdminService {
   final SupabaseClient _client = SupabaseService().client;
+
+  // TODO: Add provider-specific checkout and portal methods after selection.
+  Future<BillingAdminPage> getBillingAdminPage({
+    required String section,
+    required int page,
+    required String status,
+    required String search,
+  }) async {
+    final response = await _client.functions.invoke(
+      'admin-billing',
+      body: {
+        'section': section,
+        'page': page,
+        'page_size': 25,
+        'status': status,
+        'search': search,
+      },
+    );
+
+    if (response.status >= 400) {
+      final data = response.data;
+      final message = data is Map
+          ? data['error']?.toString()
+          : null;
+      throw Exception(message ?? 'No se pudo cargar la información de pagos.');
+    }
+
+    final data = response.data;
+    if (data is! Map) {
+      throw Exception('La respuesta de facturación no tiene un formato válido.');
+    }
+    return BillingAdminPage.fromJson(Map<String, dynamic>.from(data));
+  }
 
   // ---------------------------------------------------------------------
   // 1. Estadísticas del dashboard
@@ -237,7 +271,7 @@ class AdminService {
     try {
       final response = await _client
           .from('profiles')
-          .select('id, username, avatar_url, created_at, is_active')
+          .select('id, username, avatar_url, created_at, role, is_active')
           .order('created_at', ascending: false);
 
       return List<Map<String, dynamic>>.from(response);
@@ -253,38 +287,15 @@ class AdminService {
     required String password,
     required String username,
   }) async {
-    final adminSession = _client.auth.currentSession;
+    final response = await _client.functions.invoke(
+      'admin-create-user',
+      body: {'email': email, 'password': password, 'username': username},
+    );
 
-    try {
-      final response = await _client.auth.signUp(
-        email: email,
-        password: password,
-        data: {'username': username},
+    if (response.status >= 400) {
+      throw Exception(
+        response.data?['error']?.toString() ?? 'No se pudo crear el usuario.',
       );
-
-      final user = response.user;
-      if (user == null) {
-        throw Exception(
-          'No se pudo crear el usuario. Revisa si el correo requiere confirmación.',
-        );
-      }
-
-      await _client.from('profiles').upsert({
-        'id': user.id,
-        'username': username,
-        'is_active': true,
-      });
-    } catch (e) {
-      debugPrint('[AdminService] Error al crear usuario: $e');
-      rethrow;
-    } finally {
-      if (adminSession != null) {
-        try {
-          await _client.auth.setSession(adminSession.refreshToken ?? '');
-        } catch (_) {
-          // La restauración puede ser innecesaria si signUp no cambió la sesión.
-        }
-      }
     }
   }
 
@@ -341,21 +352,34 @@ class AdminService {
       );
     }
 
-    await updateUserProfile(userId, {'username': username});
   }
 
   /// Habilita o deshabilita el acceso del usuario sin eliminar su perfil.
   Future<void> setUserStatus(String userId, bool isActive) async {
-    try {
-      await _client
-          .from('profiles')
-          .update({'is_active': isActive})
-          .eq('id', userId);
-    } catch (e) {
-      debugPrint(
-        '[AdminService] Error al cambiar estado del usuario $userId: $e',
+    final response = await _client.functions.invoke(
+      'admin-update-user',
+      body: {'user_id': userId, 'is_active': isActive},
+    );
+
+    if (response.status >= 400) {
+      throw Exception(
+        response.data?['error']?.toString() ??
+            'No se pudo cambiar el estado del usuario.',
       );
-      rethrow;
+    }
+  }
+
+  Future<void> deleteUser(String userId) async {
+    final response = await _client.functions.invoke(
+      'admin-delete-user',
+      body: {'user_id': userId},
+    );
+
+    if (response.status >= 400) {
+      throw Exception(
+        response.data?['error']?.toString() ??
+            'No se pudo eliminar el usuario.',
+      );
     }
   }
 
