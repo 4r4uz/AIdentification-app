@@ -41,6 +41,7 @@ class _CameraWidgetState extends State<CameraWidget>
   bool _restartWhenInitializationFinishes = false;
   bool _isTorchEnabled = false;
   bool _isZoomIndicatorVisible = false;
+  Future<void> _pendingCameraDisposal = Future<void>.value();
 
   String _errorMessage = '';
   Timer? _zoomIndicatorTimer;
@@ -105,7 +106,11 @@ class _CameraWidgetState extends State<CameraWidget>
       setState(() {});
     }
 
-    await _disposeController(controller);
+    final disposal = _pendingCameraDisposal.then(
+      (_) => _disposeController(controller),
+    );
+    _pendingCameraDisposal = disposal;
+    await disposal;
   }
 
   Future<void> _disposeController(CameraController? controller) async {
@@ -231,23 +236,21 @@ class _CameraWidgetState extends State<CameraWidget>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) async {
-    if (state == AppLifecycleState.inactive ||
-        state == AppLifecycleState.paused) {
+    if (state != AppLifecycleState.resumed) {
       _isAppActive = false;
       _cameraGeneration++;
       await _disposeCamera();
+      return;
     }
 
-    if (state == AppLifecycleState.resumed) {
-      _isAppActive = true;
-      if (!widget.isActive || _isProcessingImage) return;
-      if (_isInitializing) {
-        _restartWhenInitializationFinishes = true;
-        return;
-      }
-      if (_controller == null || !_isReady) {
-        await _initCamera();
-      }
+    _isAppActive = true;
+    if (!widget.isActive || _isProcessingImage) return;
+    if (_isInitializing) {
+      _restartWhenInitializationFinishes = true;
+      return;
+    }
+    if (_controller == null || !_isReady) {
+      await _initCamera();
     }
   }
 
