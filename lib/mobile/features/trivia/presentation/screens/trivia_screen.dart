@@ -5,8 +5,8 @@ import 'package:flutter/material.dart';
 import '/mobile/core/service_locator.dart';
 import '/mobile/core/theme/app_theme.dart';
 import '/mobile/core/theme/colors.dart';
+import '/mobile/features/gamification/data/models/game_progress_model.dart';
 import '/mobile/features/trivia/data/models/trivia_model.dart';
-import '/mobile/features/trivia/data/models/trivia_progress_summary.dart';
 import '/mobile/features/trivia/data/models/trivia_review_question.dart';
 import '/mobile/widgets/common_widgets.dart';
 
@@ -21,21 +21,22 @@ class _TriviaScreenState extends State<TriviaScreen> {
   final _triviaService = ServiceLocator.trivia;
   final _authService = ServiceLocator.auth;
 
-  static const _questionCountPresets = [5, 10, 15, 20];
+  static const _questionCountPresets = [10, 20, 30, 40];
   static const _timeLimits = <int?>[null, 60, 300, 600];
   static const _difficultyOptions = ['all', 'facil', 'medio', 'dificil'];
 
   List<TriviaModel> _allTrivias = [];
   List<TriviaModel> _trivias = [];
   List<TriviaReviewQuestion> _reviewQueue = [];
-  TriviaProgressSummary? _progressSummary;
+  GameProgressModel? _progressSummary;
   List<int?> _correctAnswerIndexes = [];
   List<int> _pointsAwardedByQuestion = [];
   List<DateTime?> _nextReviewAtByQuestion = [];
-  int _selectedQuestionCount = 5;
+  int _selectedQuestionCount = 10;
   String _selectedDifficulty = 'all';
   String _selectedCategory = 'all';
   int? _selectedTimeLimit;
+  bool _showMoreOptions = false;
   int _remainingSeconds = 0;
   int _elapsedSeconds = 0;
   int _currentIndex = 0;
@@ -76,7 +77,7 @@ class _TriviaScreenState extends State<TriviaScreen> {
     });
     try {
       final trivias = await _triviaService.getAllTrivias();
-      final progressSummary = await _triviaService.getMyProgressSummary();
+      final progressSummary = await ServiceLocator.gameProgress.getMyProgress();
       final reviewQueue = await _triviaService.getMyReviewQueue();
       if (!mounted) return;
       setState(() {
@@ -111,14 +112,9 @@ class _TriviaScreenState extends State<TriviaScreen> {
 
   List<int> get _availableQuestionCounts {
     final availableCount = _availableTrivias.length;
-    if (availableCount == 0) return [];
-    if (availableCount < _questionCountPresets.first) return [availableCount];
-
-    final options = _questionCountPresets
+    return _questionCountPresets
         .where((count) => count <= availableCount)
-        .toList();
-    if (options.last != availableCount) options.add(availableCount);
-    return options;
+        .toList(growable: false);
   }
 
   List<String> get _availableCategories {
@@ -264,7 +260,7 @@ class _TriviaScreenState extends State<TriviaScreen> {
     });
   }
 
-  void _startGame({bool reviewOnly = false}) {
+  void _startGame({bool focusReviews = false}) {
     final available = _availableTrivias;
     final reviewIds = _reviewQueue.map((question) => question.triviaId).toSet();
     final dueQuestions = available
@@ -273,9 +269,8 @@ class _TriviaScreenState extends State<TriviaScreen> {
     final newQuestions =
         available.where((trivia) => !reviewIds.contains(trivia.id)).toList()
           ..shuffle();
-    final questions = reviewOnly
-        ? dueQuestions
-        : [...dueQuestions, ...newQuestions];
+    final questions = [...dueQuestions, ...newQuestions];
+    if (!focusReviews) questions.shuffle();
     if (questions.isEmpty) return;
     final selectedQuestions = questions.take(_selectedQuestionCount).toList();
     setState(() {
@@ -359,10 +354,8 @@ class _TriviaScreenState extends State<TriviaScreen> {
         _nextReviewAtByQuestion[_currentIndex] = result.nextReviewAt;
         if (result.isCorrect) _correctAnswers++;
         _score += result.pointsAwarded;
-        _reviewQueue.removeWhere(
-          (question) => question.triviaId == currentTrivia.id,
-        );
       });
+      unawaited(_refreshTriviaProgress());
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -383,7 +376,7 @@ class _TriviaScreenState extends State<TriviaScreen> {
   Future<void> _refreshTriviaProgress() async {
     if (_authService.currentUser == null) return;
     try {
-      final summary = await _triviaService.getMyProgressSummary();
+      final summary = await ServiceLocator.gameProgress.getMyProgress();
       final reviewQueue = await _triviaService.getMyReviewQueue();
       if (!mounted) return;
       setState(() {
@@ -916,85 +909,118 @@ class _TriviaScreenState extends State<TriviaScreen> {
         _buildTriviaProgressCard(context, dueReviewCount),
         const SizedBox(height: 24),
         _ConfigSection(
-          icon: Icons.format_list_numbered_rounded,
-          title: 'Cantidad de preguntas',
-          subtitle: 'Elige cuántas preguntas tendrá la partida',
-          child: _availableQuestionCounts.isEmpty
-              ? const SizedBox.shrink()
-              : Wrap(
+          icon: Icons.tune_rounded,
+          title: 'Configura tu partida',
+          subtitle: 'Elige la duración y la dificultad',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Cantidad de preguntas', style: AppTheme.bodyStyle(context)),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 9,
+                runSpacing: 8,
+                children: _questionCountPresets
+                    .map(
+                      (count) => _ChoiceChip(
+                        label: '$count',
+                        selected: count == _selectedQuestionCount,
+                        enabled: questionCounts.contains(count),
+                        onTap: () =>
+                            setState(() => _selectedQuestionCount = count),
+                      ),
+                    )
+                    .toList(),
+              ),
+              if (questionCounts.isEmpty) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'Se necesitan al menos 10 preguntas con estos filtros.',
+                  style: TextStyle(color: context.palette.textSecondary),
+                ),
+              ],
+              const SizedBox(height: 16),
+              Text('Dificultad', style: AppTheme.bodyStyle(context)),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 9,
+                runSpacing: 8,
+                children: _difficultyOptions
+                    .map(
+                      (difficulty) => _ChoiceChip(
+                        label: _difficultyLabel(difficulty),
+                        selected: difficulty == _selectedDifficulty,
+                        onTap: () => _setDifficulty(difficulty),
+                      ),
+                    )
+                    .toList(),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        Container(
+          decoration: BoxDecoration(
+            color: context.palette.surface,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: context.palette.border),
+          ),
+          child: ExpansionTile(
+            initiallyExpanded: _showMoreOptions,
+            onExpansionChanged: (expanded) {
+              setState(() => _showMoreOptions = expanded);
+            },
+            leading: Icon(
+              Icons.more_horiz_rounded,
+              color: context.palette.primary,
+            ),
+            title: const Text('Más opciones'),
+            subtitle: const Text('Categoría y límite de tiempo'),
+            childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+            children: [
+              _ConfigSection(
+                icon: Icons.category_rounded,
+                title: 'Categoría',
+                subtitle: 'Escoge el grupo de fauna',
+                child: Wrap(
                   spacing: 10,
                   runSpacing: 10,
-                  children: questionCounts
+                  children: _availableCategories
                       .map(
-                        (count) => _ChoiceChip(
-                          label: '$count',
-                          selected: count == _selectedQuestionCount,
-                          onTap: () =>
-                              setState(() => _selectedQuestionCount = count),
+                        (category) => _ChoiceChip(
+                          label: _categoryLabel(category),
+                          icon: _categoryIcon(category),
+                          selected: category == _selectedCategory,
+                          onTap: () => _setCategory(category),
                         ),
                       )
                       .toList(),
                 ),
-        ),
-        const SizedBox(height: 18),
-        _ConfigSection(
-          icon: Icons.speed_rounded,
-          title: 'Dificultad',
-          subtitle: 'Filtra las preguntas por nivel',
-          child: Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: _difficultyOptions
-                .map(
-                  (difficulty) => _ChoiceChip(
-                    label: _difficultyLabel(difficulty),
-                    selected: difficulty == _selectedDifficulty,
-                    onTap: () => _setDifficulty(difficulty),
-                  ),
-                )
-                .toList(),
-          ),
-        ),
-        const SizedBox(height: 18),
-        _ConfigSection(
-          icon: Icons.category_rounded,
-          title: 'Categoría',
-          subtitle: 'Escoge el grupo de fauna',
-          child: Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: _availableCategories
-                .map(
-                  (category) => _ChoiceChip(
-                    label: _categoryLabel(category),
-                    icon: _categoryIcon(category),
-                    selected: category == _selectedCategory,
-                    onTap: () => _setCategory(category),
-                  ),
-                )
-                .toList(),
-          ),
-        ),
-        const SizedBox(height: 18),
-        _ConfigSection(
-          icon: Icons.timer_outlined,
-          title: 'Tiempo',
-          subtitle: 'El límite se aplica a toda la partida',
-          child: Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: _timeLimits
-                .map(
-                  (timeLimit) => _ChoiceChip(
-                    label: timeLimit == null
-                        ? 'Sin límite'
-                        : '${timeLimit ~/ 60} min',
-                    icon: Icons.timer_rounded,
-                    selected: timeLimit == _selectedTimeLimit,
-                    onTap: () => setState(() => _selectedTimeLimit = timeLimit),
-                  ),
-                )
-                .toList(),
+              ),
+              const SizedBox(height: 12),
+              _ConfigSection(
+                icon: Icons.timer_outlined,
+                title: 'Límite de tiempo',
+                subtitle: 'Opcional; no aumenta la XP',
+                child: Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: _timeLimits
+                      .map(
+                        (timeLimit) => _ChoiceChip(
+                          label: timeLimit == null
+                              ? 'Sin límite'
+                              : '${timeLimit ~/ 60} min',
+                          icon: Icons.timer_rounded,
+                          selected: timeLimit == _selectedTimeLimit,
+                          onTap: () =>
+                              setState(() => _selectedTimeLimit = timeLimit),
+                        ),
+                      )
+                      .toList(),
+                ),
+              ),
+            ],
           ),
         ),
         const SizedBox(height: 26),
@@ -1002,9 +1028,9 @@ class _TriviaScreenState extends State<TriviaScreen> {
           SizedBox(
             height: 52,
             child: OutlinedButton.icon(
-              onPressed: () => _startGame(reviewOnly: true),
+              onPressed: () => _startGame(focusReviews: true),
               icon: const Icon(Icons.replay_circle_filled_rounded),
-              label: Text('Repasar $dueReviewCount preguntas vencidas'),
+              label: Text('Priorizar $dueReviewCount repasos vencidos'),
             ),
           ),
           const SizedBox(height: 10),
@@ -1012,11 +1038,11 @@ class _TriviaScreenState extends State<TriviaScreen> {
         SizedBox(
           height: 56,
           child: FilledButton.icon(
-            onPressed: availableCount == 0 ? null : _startGame,
+            onPressed: questionCounts.isEmpty ? null : _startGame,
             icon: const Icon(Icons.play_arrow_rounded),
             label: Text(
-              availableCount == 0
-                  ? 'No hay preguntas con estos filtros'
+              questionCounts.isEmpty
+                  ? 'Se necesitan al menos 10 preguntas'
                   : 'Comenzar partida',
             ),
           ),
@@ -1056,14 +1082,14 @@ class _TriviaScreenState extends State<TriviaScreen> {
                 Expanded(
                   child: _ProgressValue(
                     label: 'XP',
-                    value: '${summary?.totalPoints ?? 0}',
+                    value: '${summary?.totalXp ?? 0}',
                     icon: Icons.stars_rounded,
                   ),
                 ),
                 Expanded(
                   child: _ProgressValue(
                     label: 'Rango',
-                    value: _naturalistRank(summary?.totalPoints ?? 0),
+                    value: _naturalistRank(summary?.totalXp ?? 0),
                     icon: Icons.workspace_premium_rounded,
                   ),
                 ),
@@ -1080,11 +1106,7 @@ class _TriviaScreenState extends State<TriviaScreen> {
   }
 
   String _naturalistRank(int points) {
-    if (points >= 1500) return 'Experto';
-    if (points >= 700) return 'Investigador';
-    if (points >= 300) return 'Naturalista';
-    if (points >= 100) return 'Explorador';
-    return 'Aprendiz';
+    return GameProgressModel.rankForXp(points).name;
   }
 
   String _nextReviewLabel(DateTime? nextReviewAt) {
@@ -1506,6 +1528,7 @@ class _ConfigSection extends StatelessWidget {
 class _ChoiceChip extends StatelessWidget {
   final String label;
   final bool selected;
+  final bool enabled;
   final VoidCallback onTap;
   final IconData? icon;
 
@@ -1513,6 +1536,7 @@ class _ChoiceChip extends StatelessWidget {
     required this.label,
     required this.selected,
     required this.onTap,
+    this.enabled = true,
     this.icon,
   });
 
@@ -1526,19 +1550,31 @@ class _ChoiceChip extends StatelessWidget {
           : Icon(
               icon,
               size: 17,
-              color: selected ? palette.primary : palette.textSecondary,
+              color: !enabled
+                  ? palette.textSecondary.withValues(alpha: 0.45)
+                  : selected
+                  ? palette.primary
+                  : palette.textSecondary,
             ),
       selected: selected,
-      onSelected: (_) => onTap(),
+      onSelected: enabled ? (_) => onTap() : null,
       showCheckmark: false,
       labelStyle: TextStyle(
-        color: selected ? palette.primary : palette.textSecondary,
+        color: !enabled
+            ? palette.textSecondary.withValues(alpha: 0.45)
+            : selected
+            ? palette.primary
+            : palette.textSecondary,
         fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
       ),
       backgroundColor: palette.surface,
       selectedColor: palette.primarySoft,
       side: BorderSide(
-        color: selected ? palette.primary : palette.border,
+        color: !enabled
+            ? palette.border.withValues(alpha: 0.5)
+            : selected
+            ? palette.primary
+            : palette.border,
         width: selected ? 1.4 : 1,
       ),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),

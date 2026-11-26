@@ -3,6 +3,7 @@ import '/mobile/features/profile/data/services/profile_service.dart';
 import '/mobile/features/gallery/data/services/species_service.dart';
 import '/mobile/features/camera/data/services/detection_service.dart';
 import '/mobile/features/trivia/data/services/trivia_service.dart';
+import '/mobile/features/gamification/data/services/game_progress_service.dart';
 
 /// ServiceLocator para compartir servicios singleton en toda la aplicación.
 ///
@@ -22,10 +23,12 @@ class ServiceLocator {
   final SpeciesService _speciesService = SpeciesService();
   final DetectionService _detectionService = DetectionService();
   final TriviaService _triviaService = TriviaService();
+  final GameProgressService _gameProgressService = GameProgressService();
 
   static AuthService get auth => _instance._authService;
   static ProfileService get profile => _instance._profileService;
   static SpeciesService get species => _instance._speciesService;
   static DetectionService get detection => _instance._detectionService;
   static TriviaService get trivia => _instance._triviaService;
+  static GameProgressService get gameProgress => _instance._gameProgressService;
 }

@@ -17,6 +17,8 @@ import '/mobile/core/theme/colors.dart';
 import '/mobile/features/auth/presentation/screens/login_screen.dart';
 import '/mobile/features/auth/presentation/screens/register_screen.dart';
 import '/mobile/features/profile/presentation/screens/profile_settings_screen.dart';
+import '/mobile/features/gamification/data/models/game_progress_model.dart';
+import '/mobile/features/gamification/presentation/widgets/game_progress_widgets.dart';
 
 class ProfileScreen extends StatefulWidget {
   final bool isActive;
@@ -44,6 +46,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
   int _discoveredSpeciesCount = 0;
   int _totalSpeciesCount = 0;
   bool _hasCollectionStats = false;
+  GameProgressModel? _gameProgress;
+  bool _isLoadingGameProgress = false;
+  String? _gameProgressError;
   bool _isLoading = false;
   bool _isUploadingImage = false;
   bool _isFetching = false;
@@ -66,6 +71,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
           _discoveredSpeciesCount = 0;
           _totalSpeciesCount = 0;
           _hasCollectionStats = false;
+          _gameProgress = null;
+          _gameProgressError = null;
           _avatarUrl = null;
           _localAvatarFile = null;
           _loadError = null;
@@ -94,6 +101,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
         _discoveredSpeciesCount = 0;
         _totalSpeciesCount = 0;
         _hasCollectionStats = false;
+        _gameProgress = null;
+        _gameProgressError = null;
         _avatarUrl = null;
         _localAvatarFile = null;
         _loadError = null;
@@ -159,6 +168,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         if (mounted) {
           setState(() {
             _currentUser = null;
+            _gameProgress = null;
             _hasLoaded = true;
             _isLoading = false;
           });
@@ -182,6 +192,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         _hasLoaded = true;
         _isLoading = false;
       });
+      await _loadGameProgress();
     } catch (error) {
       debugPrint('Error cargando el perfil: $error');
       if (mounted) {
@@ -193,6 +204,41 @@ class _ProfileScreenState extends State<ProfileScreen> {
       }
     } finally {
       _isFetching = false;
+    }
+  }
+
+  Future<void> _loadGameProgress() async {
+    final userId = _authService.currentUser?.id;
+    if (userId == null) {
+      if (mounted) {
+        setState(() {
+          _gameProgress = null;
+          _gameProgressError = null;
+          _isLoadingGameProgress = false;
+        });
+      }
+      return;
+    }
+
+    setState(() {
+      _isLoadingGameProgress = true;
+      _gameProgressError = null;
+    });
+    try {
+      final progress = await ServiceLocator.gameProgress.getMyProgress();
+      if (!mounted || _authService.currentUser?.id != userId) return;
+      setState(() {
+        _gameProgress = progress;
+        _isLoadingGameProgress = false;
+      });
+    } catch (error) {
+      debugPrint('Error cargando la progresión de minijuegos: $error');
+      if (mounted && _authService.currentUser?.id == userId) {
+        setState(() {
+          _gameProgressError = error.toString();
+          _isLoadingGameProgress = false;
+        });
+      }
     }
   }
 
@@ -437,6 +483,34 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
         ),
         const SizedBox(height: 24),
+        _ProfileSectionTitle(
+          icon: Icons.workspace_premium_rounded,
+          title: 'Nivel y minijuegos',
+        ),
+        const SizedBox(height: 12),
+        if (_isLoadingGameProgress)
+          const Padding(
+            padding: EdgeInsets.all(20),
+            child: Center(child: CircularProgressIndicator()),
+          )
+        else if (_gameProgressError != null)
+          Material(
+            color: palette.surface,
+            borderRadius: BorderRadius.circular(20),
+            child: ListTile(
+              leading: Icon(Icons.cloud_off_rounded, color: palette.error),
+              title: const Text('No se pudo cargar tu nivel'),
+              subtitle: Text(_gameProgressError!),
+              trailing: IconButton(
+                tooltip: 'Reintentar',
+                onPressed: _loadGameProgress,
+                icon: const Icon(Icons.refresh_rounded),
+              ),
+            ),
+          )
+        else if (_gameProgress != null)
+          GameProgressCard(progress: _gameProgress!, showAllRanks: true),
+        const SizedBox(height: 24),
         _ProfileSectionTitle(icon: Icons.star_rounded, title: 'Tu colección'),
         const SizedBox(height: 12),
         Material(
@@ -558,6 +632,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
               const SizedBox(height: 8),
               Text(
                 'Puedes identificar animales sin una cuenta. Inicia sesión o crea una cuenta para guardar tus hallazgos y acceder a la galería.',
+                textAlign: TextAlign.center,
+                style: AppTheme.bodyStyle(context),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Al iniciar sesión también guardarás tu XP y nivel de '
+                'minijuegos, compartidos entre Trivia y los juegos que '
+                'agreguemos después.',
                 textAlign: TextAlign.center,
                 style: AppTheme.bodyStyle(context),
               ),

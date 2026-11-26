@@ -9,8 +9,16 @@ ALTER TABLE public.trivias
 CREATE TABLE IF NOT EXISTS public.trivia_point_ledger (
   id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  game_code text NOT NULL DEFAULT 'trivia'
+    CHECK (game_code ~ '^[a-z][a-z0-9_]{1,39}$'),
   source_type text NOT NULL
-    CHECK (source_type IN ('correct_answer', 'daily_challenge')),
+    CHECK (
+      source_type IN (
+        'correct_answer',
+        'minigame_reward',
+        'daily_challenge'
+      )
+    ),
   source_key text NOT NULL,
   points integer NOT NULL CHECK (points > 0),
   created_at timestamp with time zone NOT NULL DEFAULT now(),
@@ -58,7 +66,7 @@ INSERT INTO public.trivia_point_ledger (
 SELECT
   user_id,
   'correct_answer',
-  trivia_id::text || ':0',
+  'trivia:' || trivia_id::text || ':0',
   max(points_awarded),
   min(created_at)
 FROM public.trivia_attempts
@@ -80,7 +88,7 @@ INSERT INTO public.trivia_point_ledger (
 SELECT
   progress.user_id,
   'correct_answer',
-  progress.trivia_id::text || ':0',
+  'trivia:' || progress.trivia_id::text || ':0',
   coalesce(trivia.points, 10),
   coalesce(progress.last_attempt, now())
 FROM public.user_trivia_progress AS progress
@@ -268,14 +276,17 @@ BEGIN
   IF v_candidate_points > 0 THEN
     INSERT INTO public.trivia_point_ledger (
       user_id,
+      game_code,
       source_type,
       source_key,
       points
     )
     VALUES (
       v_user_id,
-      'correct_answer',
-      p_trivia_id::text || ':' || v_new_review_stage::text,
+      'trivia',
+      'minigame_reward',
+      'trivia:' || p_trivia_id::text || ':'
+        || v_new_review_stage::text,
       v_candidate_points
     )
     ON CONFLICT (user_id, source_type, source_key) DO NOTHING;
@@ -418,6 +429,47 @@ $function$;
 REVOKE ALL ON FUNCTION public.get_my_trivia_summary()
   FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.get_my_trivia_summary()
+  TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.get_my_game_progress()
+RETURNS TABLE (
+  total_xp bigint,
+  mastered_questions bigint,
+  total_attempts bigint,
+  correct_attempts bigint
+)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $function$
+  SELECT
+    coalesce((
+      SELECT sum(ledger.points)
+      FROM public.trivia_point_ledger AS ledger
+      WHERE ledger.user_id = auth.uid()
+    ), 0),
+    (
+      SELECT count(*)
+      FROM public.user_trivia_question_state AS state
+      WHERE state.user_id = auth.uid()
+        AND state.mastered_at IS NOT NULL
+    ),
+    coalesce((
+      SELECT sum(progress.attempts)
+      FROM public.user_trivia_progress AS progress
+      WHERE progress.user_id = auth.uid()
+    ), 0),
+    coalesce((
+      SELECT sum(progress.correct_attempts)
+      FROM public.user_trivia_progress AS progress
+      WHERE progress.user_id = auth.uid()
+    ), 0);
+$function$;
+
+REVOKE ALL ON FUNCTION public.get_my_game_progress()
+  FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.get_my_game_progress()
   TO authenticated;
 
 CREATE OR REPLACE FUNCTION public.get_my_trivia_review_queue()

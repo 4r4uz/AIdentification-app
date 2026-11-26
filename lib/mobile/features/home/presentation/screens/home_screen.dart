@@ -9,6 +9,9 @@ import '/mobile/core/theme/colors.dart';
 import '/mobile/features/auth/data/services/auth_service.dart';
 import '/mobile/features/profile/data/services/profile_service.dart';
 import '/mobile/features/profile/presentation/screens/profile_settings_screen.dart';
+import '/mobile/features/gamification/data/models/game_progress_model.dart';
+import '/mobile/features/gamification/presentation/screens/game_progress_screen.dart';
+import '/mobile/features/gamification/presentation/widgets/game_progress_widgets.dart';
 import '/mobile/features/trivia/presentation/screens/trivia_screen.dart';
 import '/mobile/features/gallery/data/models/species_fact_model.dart';
 import '/mobile/features/gallery/data/services/species_service.dart';
@@ -30,6 +33,7 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _imageUrl;
   late Future<List<SpeciesFactModel>> _factsFuture;
   late Future<({int total, int? discovered})> _speciesStatsFuture;
+  late Future<GameProgressModel?> _gameProgressFuture;
   StreamSubscription<AuthState>? _authSubscription;
 
   @override
@@ -42,14 +46,19 @@ class _HomeScreenState extends State<HomeScreen> {
         setState(() {
           _imageUrl = null;
           _speciesStatsFuture = _loadSpeciesStats();
+          _gameProgressFuture = _loadGameProgress();
         });
       } else if (state.event == AuthChangeEvent.signedIn) {
-        setState(() => _speciesStatsFuture = _loadSpeciesStats());
+        setState(() {
+          _speciesStatsFuture = _loadSpeciesStats();
+          _gameProgressFuture = _loadGameProgress();
+        });
         _loadProfileImage();
       }
     });
     _factsFuture = _speciesService.getAllSpeciesFacts();
     _speciesStatsFuture = _loadSpeciesStats();
+    _gameProgressFuture = _loadGameProgress();
     _loadProfileImage();
   }
 
@@ -73,8 +82,13 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       _factsFuture = _speciesService.getAllSpeciesFacts();
       _speciesStatsFuture = _loadSpeciesStats();
+      _gameProgressFuture = _loadGameProgress();
     });
     await Future.wait([_loadProfileImage(), _factsFuture, _speciesStatsFuture]);
+  }
+
+  Future<GameProgressModel?> _loadGameProgress() {
+    return ServiceLocator.gameProgress.getMyProgress();
   }
 
   Future<({int total, int? discovered})> _loadSpeciesStats() async {
@@ -91,11 +105,14 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _openTrivia(BuildContext context) {
-    Navigator.push(
+  Future<void> _openTrivia(BuildContext context) async {
+    await Navigator.push<void>(
       context,
       MaterialPageRoute(builder: (_) => const TriviaScreen()),
     );
+    if (mounted) {
+      setState(() => _gameProgressFuture = _loadGameProgress());
+    }
   }
 
   void _openSettings(BuildContext context) {
@@ -105,14 +122,13 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _openAchievements(BuildContext context) {
-    showDialog<void>(
-      context: context,
-      builder: (context) => const AlertDialog(
-        title: Text('Logros'),
-        content: Text('Esta sección estará disponible próximamente.'),
-      ),
+  Future<void> _openGameProgress(BuildContext context) async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(builder: (_) => const GameProgressScreen()),
     );
+    if (mounted) {
+      setState(() => _gameProgressFuture = _loadGameProgress());
+    }
   }
 
   Widget _buildExploreSectionHeader(BuildContext context) {
@@ -153,8 +169,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 padding: const EdgeInsets.fromLTRB(18, 8, 18, 12),
                 child: _HomeHeader(
                   imageUrl: _imageUrl,
+                  progressFuture: _gameProgressFuture,
                   onProfileTap: widget.onProfileTap,
-                  onAchievementsTap: () => _openAchievements(context),
+                  onProgressTap: () => _openGameProgress(context),
                   onSettingsTap: () => _openSettings(context),
                 ),
               ),
@@ -285,14 +302,16 @@ class _CollectionSummary extends StatelessWidget {
 
 class _HomeHeader extends StatelessWidget {
   final String? imageUrl;
+  final Future<GameProgressModel?> progressFuture;
   final VoidCallback? onProfileTap;
-  final VoidCallback onAchievementsTap;
+  final VoidCallback onProgressTap;
   final VoidCallback onSettingsTap;
 
   const _HomeHeader({
     required this.imageUrl,
+    required this.progressFuture,
     required this.onProfileTap,
-    required this.onAchievementsTap,
+    required this.onProgressTap,
     required this.onSettingsTap,
   });
 
@@ -347,29 +366,10 @@ class _HomeHeader extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 12),
-        Material(
-          color: palette.surface.withValues(alpha: 0.8),
-          borderRadius: BorderRadius.circular(30),
-          child: InkWell(
-            onTap: onAchievementsTap,
-            borderRadius: BorderRadius.circular(30),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.emoji_events_rounded, color: palette.primary),
-                  const SizedBox(width: 8),
-                  Text(
-                    'Logros',
-                    style: TextStyle(
-                      color: palette.textPrimary,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ],
-              ),
-            ),
+        Flexible(
+          child: GameProgressBadge(
+            progressFuture: progressFuture,
+            onTap: onProgressTap,
           ),
         ),
         const Spacer(),

@@ -1,7 +1,6 @@
 import '/supabase/supabase_service.dart';
 import '/mobile/features/trivia/data/models/trivia_answer_result.dart';
 import '/mobile/features/trivia/data/models/trivia_model.dart';
-import '/mobile/features/trivia/data/models/trivia_progress_summary.dart';
 import '/mobile/features/trivia/data/models/trivia_review_question.dart';
 
 class TriviaService {
@@ -47,20 +46,6 @@ class TriviaService {
       );
     }
     return TriviaAnswerResult.fromJson(rows.single);
-  }
-
-  Future<TriviaProgressSummary?> getMyProgressSummary() async {
-    if (_supabaseService.currentUser == null) return null;
-
-    final rows = _asRows(
-      await _supabaseService.client.rpc('get_my_trivia_summary'),
-    );
-    if (rows.length != 1) {
-      throw const FormatException(
-        'No se pudo leer el resumen personal de Trivia.',
-      );
-    }
-    return TriviaProgressSummary.fromJson(rows.single);
   }
 
   Future<List<TriviaReviewQuestion>> getMyReviewQueue() async {

@@ -142,6 +142,13 @@ primeras recompensas, usar títulos de perfil y distintivos; marcos o temas
 visuales pueden venir después. No introducir una tienda de puntos en la primera
 versión.
 
+El nivel es **global por cuenta**, no por minijuego: todos los juegos sumarán
+XP al mismo ledger y los rangos derivan del total. Cada evento se etiqueta con
+`game_code` y una clave de fuente con prefijo estable (por ejemplo,
+`trivia:42:1`), para mantener el saldo idempotente y permitir informes por
+juego. Solo funciones server-side validadas pueden escribir XP; no exponer una
+RPC genérica que permita al cliente elegir libremente puntos.
+
 ### Objetivos que motivan a volver
 
 - **Dominio:** responder correctamente preguntas distintas, con hitos de 1, 10,
@@ -160,9 +167,9 @@ versión.
   practicar.
 
 La primera versión debe priorizar Práctica, feedback explicativo, XP por
-pregunta única, rangos y logros. El reto diario, objetivos semanales y rachas
-requieren guardar sesiones y fechas de manera confiable en Supabase; no
-simularlos solo con estado local.
+aciertos y repasos espaciados, rangos y logros. El reto diario, objetivos
+semanales y rachas requieren guardar sesiones y fechas de manera confiable en
+Supabase; no simularlos solo con estado local.
 
 ## Preparación antes del SQL
 
@@ -1051,7 +1058,7 @@ Repetir este backfill después de crear o cambiar requisitos de logros desde el
 panel, de modo que las personas que ya cumplen el nuevo umbral no tengan que
 generar actividad adicional para obtenerlo.
 
-## Integración futura en Mobile
+## Integración Mobile
 
 ### Estructura sugerida
 
@@ -1077,6 +1084,24 @@ lib/mobile/features/achievements/
 Registrar los servicios en `lib/mobile/core/service_locator.dart`. Mantener
 consultas y modelos bajo `lib/mobile/features/`; usar `SupabaseService` para
 acceso al backend, de acuerdo con `lib/ARCHITECTURE.md`.
+
+### Estado de la implementación
+
+- El feature común vive en
+  `lib/mobile/features/gamification/`: modelo con rangos compartidos, servicio
+  que carga `get_my_game_progress`, componentes visuales y pantalla de detalle.
+- El encabezado superior de Inicio presenta un distintivo de nivel/XP que abre
+  el progreso global. Perfil repite el nivel, barra hasta el siguiente rango,
+  umbrales de todos los rangos y estadísticas de Trivia.
+- Trivia es la primera fuente de XP, no el propietario del sistema de niveles.
+  Los futuros minijuegos reutilizarán el modelo global y registrarán sus
+  recompensas validadas con su propio `game_code`.
+- La configuración principal usa rondas de 10, 20, 30 o 40 preguntas y
+  dificultad en un mismo bloque. Categoría y temporizador opcional quedan en
+  “Más opciones”; el límite de tiempo no multiplica XP.
+- Para ejecutar la nueva interfaz, el SQL de progresión global debe estar
+  aplicado. La fase que revoca los accesos antiguos se mantiene separada hasta
+  publicar la app móvil y actualizar el panel administrativo.
 
 ### Modelo y servicio
 
