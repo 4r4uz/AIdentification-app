@@ -460,7 +460,7 @@ class _UsersTabState extends State<_UsersTab> {
           ),
         );
         final status = DropdownButtonFormField<_UserStatusFilter>(
-          value: _statusFilter,
+          initialValue: _statusFilter,
           decoration: const InputDecoration(labelText: 'Estado', isDense: true),
           items: const [
             DropdownMenuItem(
@@ -481,7 +481,7 @@ class _UsersTabState extends State<_UsersTab> {
           },
         );
         final role = DropdownButtonFormField<_UserRoleFilter>(
-          value: _roleFilter,
+          initialValue: _roleFilter,
           decoration: const InputDecoration(
             labelText: 'Tipo de cuenta',
             isDense: true,

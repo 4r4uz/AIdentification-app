@@ -787,6 +787,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         provider.loadAccount();
         return provider;
       },
+      
       child: Consumer<AdminDashboardProvider>(
         builder: (context, provider, _) {
           return Scaffold(

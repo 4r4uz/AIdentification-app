@@ -323,7 +323,7 @@ class _BillingTabState extends State<_BillingTab> {
           ),
         );
         final status = DropdownButtonFormField<String>(
-          value: _status,
+          initialValue: _status,
           decoration: const InputDecoration(labelText: 'Estado'),
           items: _statuses
               .map(
