@@ -1,4 +1,4 @@
-
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
@@ -22,8 +22,7 @@ class MegaDetection {
 }
 
 class MegaDetectorService {
-  static const String _modelAsset =
-      'assets/models/MDV6-yolov10-e-1280.onnx';
+  static const String _modelAsset = 'assets/models/MDV6-yolov10-e-1280.onnx';
 
   static const int _inputSize = 1280;
 
@@ -40,9 +39,8 @@ class MegaDetectorService {
   OrtSession? _session;
   List<int>? _outputShape;
 
-  bool _isDisposed = false;
-
   Future<void>? _initializationFuture;
+  Future<void>? _disposalFuture;
 
   bool get isModelLoaded => _session != null;
 
@@ -51,6 +49,8 @@ class MegaDetectorService {
   /// Verifica que la salida coincida con el formato esperado.
   /// Si no coincide, lanza una excepcion con la forma recibida.
   Future<void> initialize() async {
+    final disposal = _disposalFuture;
+    if (disposal != null) await disposal;
     if (_session != null) return;
 
     if (_initializationFuture != null) {
@@ -70,23 +70,23 @@ class MegaDetectorService {
 
   Future<void> _initializeInternal() async {
     OrtSession? session;
+    final stopwatch = Stopwatch()..start();
 
     try {
+      debugPrint('[MegaDetector] Cargando modelo ONNX desde $_modelAsset');
       session = await _ort.createSessionFromAsset(
         _modelAsset,
         options: OrtSessionOptions(
-          intraOpNumThreads: 4,
+          intraOpNumThreads: Platform.isAndroid ? 2 : 4,
           providers: [OrtProvider.CPU],
+          useArena: !Platform.isAndroid,
         ),
       );
 
       final outputInfo = await session.getOutputInfo();
 
-      if (outputInfo.isEmpty ||
-          outputInfo.first['shape'] is! List) {
-        throw Exception(
-          'No se pudo leer la forma de salida de MegaDetector',
-        );
+      if (outputInfo.isEmpty || outputInfo.first['shape'] is! List) {
+        throw Exception('No se pudo leer la forma de salida de MegaDetector');
       }
 
       final shape = (outputInfo.first['shape'] as List)
@@ -107,7 +107,15 @@ class MegaDetectorService {
 
       _session = session;
       _outputShape = shape;
+      debugPrint(
+        '[MegaDetector] Modelo cargado en ${stopwatch.elapsedMilliseconds} ms; '
+        'salida=${shape.join('x')}',
+      );
     } catch (e) {
+      debugPrint(
+        '[MegaDetector] Error al cargar modelo después de '
+        '${stopwatch.elapsedMilliseconds} ms: $e',
+      );
       await session?.close();
       rethrow;
     }
@@ -115,16 +123,34 @@ class MegaDetectorService {
 
   /// Libera los recursos de ONNX Runtime.
   Future<void> dispose() async {
-    if (_isDisposed) return;
-    _isDisposed = true;
-    await _session?.close();
+    final existingDisposal = _disposalFuture;
+    if (existingDisposal != null) {
+      await existingDisposal;
+      return;
+    }
 
+    final disposal = _disposeInternal();
+    _disposalFuture = disposal;
+    try {
+      await disposal;
+    } finally {
+      if (identical(_disposalFuture, disposal)) _disposalFuture = null;
+    }
+  }
+
+  Future<void> _disposeInternal() async {
+    final initialization = _initializationFuture;
+    if (initialization != null) await initialization;
+
+    final session = _session;
     _session = null;
     _outputShape = null;
+    await session?.close();
   }
 
   /// Detecta animales y devuelve la detección de mayor confianza.
   Future<MegaDetection?> detectAnimal(img.Image image) async {
+    final totalStopwatch = Stopwatch()..start();
     final session = _session;
     final outputShape = _outputShape;
 
@@ -145,10 +171,7 @@ class MegaDetectorService {
     // LETTERBOX
     // --------------------------------------------------
 
-    final scale = math.min(
-      _inputSize / image.width,
-      _inputSize / image.height,
-    );
+    final scale = math.min(_inputSize / image.width, _inputSize / image.height);
 
     final resizedWidth = (image.width * scale).round();
     final resizedHeight = (image.height * scale).round();
@@ -164,6 +187,7 @@ class MegaDetectorService {
       '${_inputSize}x$_inputSize; tensor [1,3,$_inputSize,$_inputSize]',
     );
 
+    final preprocessingStopwatch = Stopwatch()..start();
     final resized = img.copyResize(
       image,
       width: resizedWidth,
@@ -177,49 +201,50 @@ class MegaDetectorService {
       numChannels: 3,
     );
 
-    img.fill(
-      letterboxed,
-      color: img.ColorRgb8(114, 114, 114),
-    );
+    img.fill(letterboxed, color: img.ColorRgb8(114, 114, 114));
 
-    img.compositeImage(
-      letterboxed,
-      resized,
-      dstX: padLeft,
-      dstY: padTop,
-    );
+    img.compositeImage(letterboxed, resized, dstX: padLeft, dstY: padTop);
 
     // --------------------------------------------------
     // PREPROCESAMIENTO NCHW
     // --------------------------------------------------
 
     final input = _imageToNchw(letterboxed);
+    debugPrint(
+      '[MegaDetector] Preprocesamiento completado en '
+      '${preprocessingStopwatch.elapsedMilliseconds} ms',
+    );
 
-    final inputTensor = await OrtValue.fromList(
-      input,
-      [
-        1,
-        3,
-        _inputSize,
-        _inputSize,
-      ],
+    final tensorStopwatch = Stopwatch()..start();
+    final inputTensor = await OrtValue.fromList(input, [
+      1,
+      3,
+      _inputSize,
+      _inputSize,
+    ]);
+    debugPrint(
+      '[MegaDetector] Tensor de entrada creado en '
+      '${tensorStopwatch.elapsedMilliseconds} ms',
     );
 
     late final List<dynamic> output;
 
     try {
+      final inferenceStopwatch = Stopwatch()..start();
       final outputs = await session.run({
         session.inputNames.first: inputTensor,
       });
+      debugPrint(
+        '[MegaDetector] ONNX Runtime terminó en '
+        '${inferenceStopwatch.elapsedMilliseconds} ms',
+      );
 
       try {
         final outputName = session.outputNames.first;
         final outputValue = outputs[outputName];
 
         if (outputValue == null) {
-          throw Exception(
-            'MegaDetector no produjo la salida $outputName',
-          );
+          throw Exception('MegaDetector no produjo la salida $outputName');
         }
 
         output = await outputValue.asFlattenedList();
@@ -236,8 +261,8 @@ class MegaDetectorService {
     // DECODIFICACIÓN DE SALIDA
     // --------------------------------------------------
 
-    final (featureCount, featureAxis) =
-        _getFeatureLayout(outputShape);
+    final decodingStopwatch = Stopwatch()..start();
+    final (featureCount, featureAxis) = _getFeatureLayout(outputShape);
 
     if (featureCount == 0 ||
         featureAxis == -1 ||
@@ -248,8 +273,7 @@ class MegaDetectorService {
       );
     }
 
-    final featuresFirst =
-        featureAxis == outputShape.length - 2;
+    final featuresFirst = featureAxis == outputShape.length - 2;
 
     final candidateCount = output.length ~/ featureCount;
 
@@ -261,9 +285,7 @@ class MegaDetectorService {
     double? bestRight;
     double? bestBottom;
 
-    for (var candidate = 0;
-        candidate < candidateCount;
-        candidate++) {
+    for (var candidate = 0; candidate < candidateCount; candidate++) {
       late final double confidence;
       late final double left;
       late final double top;
@@ -302,8 +324,7 @@ class MegaDetectorService {
         );
 
         // Solo conservar detecciones clasificadas como animales.
-        if (confidence <= personConfidence ||
-            confidence <= vehicleConfidence) {
+        if (confidence <= personConfidence || confidence <= vehicleConfidence) {
           continue;
         }
         animalCandidateCount++;
@@ -414,12 +435,7 @@ class MegaDetectorService {
       }
 
       if (!confidence.isFinite ||
-          ![
-            left,
-            top,
-            right,
-            bottom,
-          ].every((value) => value.isFinite) ||
+          ![left, top, right, bottom].every((value) => value.isFinite) ||
           confidence <= bestConfidence) {
         continue;
       }
@@ -439,7 +455,9 @@ class MegaDetectorService {
       debugPrint(
         'MegaDetector: no detectado; forma=${outputShape.join('x')}, '
         'candidatos=$candidateCount, candidatosAnimal=$animalCandidateCount, '
-        'mejorConfianza=$bestConfidence',
+        'mejorConfianza=$bestConfidence, '
+        'decodificacion=${decodingStopwatch.elapsedMilliseconds} ms, '
+        'total=${totalStopwatch.elapsedMilliseconds} ms',
       );
       return null;
     }
@@ -455,7 +473,9 @@ class MegaDetectorService {
     debugPrint(
       'MegaDetector: detectado; forma=${outputShape.join('x')}, '
       'candidatos=$candidateCount, candidatosAnimal=$animalCandidateCount, '
-      'confianza=$bestConfidence',
+      'confianza=$bestConfidence, '
+      'decodificacion=${decodingStopwatch.elapsedMilliseconds} ms, '
+      'total=${totalStopwatch.elapsedMilliseconds} ms',
     );
 
     // --------------------------------------------------
@@ -467,12 +487,7 @@ class MegaDetectorService {
     var right = bestRight;
     var bottom = bestBottom;
 
-    if ([
-      left,
-      top,
-      right,
-      bottom,
-    ].every((value) => value.abs() <= 2)) {
+    if ([left, top, right, bottom].every((value) => value.abs() <= 2)) {
       left *= _inputSize;
       right *= _inputSize;
       top *= _inputSize;
@@ -483,17 +498,13 @@ class MegaDetectorService {
     // INVERSIÓN DEL LETTERBOX
     // --------------------------------------------------
 
-    left = ((left - padLeft) / scaleX)
-        .clamp(0.0, image.width.toDouble());
+    left = ((left - padLeft) / scaleX).clamp(0.0, image.width.toDouble());
 
-    right = ((right - padLeft) / scaleX)
-        .clamp(0.0, image.width.toDouble());
+    right = ((right - padLeft) / scaleX).clamp(0.0, image.width.toDouble());
 
-    top = ((top - padTop) / scaleY)
-        .clamp(0.0, image.height.toDouble());
+    top = ((top - padTop) / scaleY).clamp(0.0, image.height.toDouble());
 
-    bottom = ((bottom - padTop) / scaleY)
-        .clamp(0.0, image.height.toDouble());
+    bottom = ((bottom - padTop) / scaleY).clamp(0.0, image.height.toDouble());
 
     if (right <= left || bottom <= top) {
       return null;
@@ -528,17 +539,11 @@ class MegaDetectorService {
     }
 
     if (shape.last == _endToEndFeatureCount) {
-      return (
-        _endToEndFeatureCount,
-        shape.length - 1,
-      );
+      return (_endToEndFeatureCount, shape.length - 1);
     }
 
     if (shape[featureAxis] == _endToEndFeatureCount) {
-      return (
-        _endToEndFeatureCount,
-        featureAxis,
-      );
+      return (_endToEndFeatureCount, featureAxis);
     }
 
     return (0, -1);
@@ -550,19 +555,14 @@ class MegaDetectorService {
 
   Float32List _imageToNchw(img.Image image) {
     final planeSize = _inputSize * _inputSize;
-
+    final pixels = image.getBytes(order: img.ChannelOrder.rgb);
     final buffer = Float32List(planeSize * 3);
 
-    for (var y = 0; y < _inputSize; y++) {
-      for (var x = 0; x < _inputSize; x++) {
-        final pixel = image.getPixel(x, y);
-
-        final index = y * _inputSize + x;
-
-        buffer[index] = pixel.r / 255.0;
-        buffer[planeSize + index] = pixel.g / 255.0;
-        buffer[2 * planeSize + index] = pixel.b / 255.0;
-      }
+    for (var index = 0; index < planeSize; index++) {
+      final pixelIndex = index * 3;
+      buffer[index] = pixels[pixelIndex] / 255.0;
+      buffer[planeSize + index] = pixels[pixelIndex + 1] / 255.0;
+      buffer[2 * planeSize + index] = pixels[pixelIndex + 2] / 255.0;
     }
 
     return buffer;

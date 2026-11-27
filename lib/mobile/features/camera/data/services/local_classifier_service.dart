@@ -21,14 +21,15 @@ class LocalClassifierService {
   OrtSession? _session;
   List<String>? _labels;
 
-  bool _isDisposed = false;
-
   Future<void>? _initializationFuture;
+  Future<void>? _disposalFuture;
 
   bool get isModelLoaded => _session != null;
 
   /// Carga el modelo ONNX y sus etiquetas.
   Future<void> initialize() async {
+    final disposal = _disposalFuture;
+    if (disposal != null) await disposal;
     if (_session != null) return;
 
     // Si ya existe una inicialización en curso,
@@ -84,12 +85,29 @@ class LocalClassifierService {
 
   /// Libera los recursos del modelo.
   Future<void> dispose() async {
-    if (_isDisposed) return;
-    _isDisposed = true;
-    await _session?.close();
+    final existingDisposal = _disposalFuture;
+    if (existingDisposal != null) {
+      await existingDisposal;
+      return;
+    }
 
+    final disposal = _disposeInternal();
+    _disposalFuture = disposal;
+    try {
+      await disposal;
+    } finally {
+      if (identical(_disposalFuture, disposal)) _disposalFuture = null;
+    }
+  }
+
+  Future<void> _disposeInternal() async {
+    final initialization = _initializationFuture;
+    if (initialization != null) await initialization;
+
+    final session = _session;
     _session = null;
     _labels = null;
+    await session?.close();
   }
 
   /// Clasifica el recorte del animal producido por MegaDetector.

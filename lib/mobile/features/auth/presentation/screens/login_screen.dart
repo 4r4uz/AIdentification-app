@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
 import '/mobile/core/theme/app_theme.dart';
 import '/mobile/core/theme/colors.dart';
 import '/mobile/core/service_locator.dart';
@@ -46,11 +48,12 @@ class _LoginScreenState extends State<LoginScreen> {
         );
         Navigator.of(context).pop(true);
       }
-    } catch (e) {
+    } catch (error) {
+      debugPrint('LoginScreen: error en inicio de sesión: $error');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(e.toString().replaceAll('Exception: ', '')),
+            content: Text(_loginErrorMessage(error)),
             backgroundColor: context.palette.error,
           ),
         );
@@ -60,6 +63,20 @@ class _LoginScreenState extends State<LoginScreen> {
         setState(() => _isLoading = false);
       }
     }
+  }
+
+  String _loginErrorMessage(Object error) {
+    if (error is AuthException) {
+      final code = error.code?.toLowerCase();
+      final message = error.message.toLowerCase();
+      if (code == 'invalid_credentials' ||
+          message.contains('invalid login credentials')) {
+        return 'Correo o contraseña incorrectos.';
+      }
+      return 'No se pudo completar el inicio de sesión. Inténtalo más tarde.';
+    }
+
+    return 'No se pudo iniciar sesión. Revisa tu conexión e inténtalo nuevamente.';
   }
 
   Future<void> _handleResetPassword() async {
@@ -136,7 +153,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       'AnimalPedia',
                       style: Theme.of(context).textTheme.headlineMedium
                           ?.copyWith(fontWeight: FontWeight.w800),
-                          textAlign: TextAlign.center,
+                      textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 32),
                     Container(
@@ -149,7 +166,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             'Bienvenido de nuevo',
                             style: Theme.of(context).textTheme.titleLarge
                                 ?.copyWith(fontWeight: FontWeight.w700),
-                                textAlign: TextAlign.center,
+                            textAlign: TextAlign.center,
                           ),
                           const SizedBox(height: 6),
                           Text(

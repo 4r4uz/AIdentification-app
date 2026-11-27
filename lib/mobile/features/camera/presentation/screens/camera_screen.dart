@@ -58,18 +58,26 @@ class _CameraScreenState extends State<CameraScreen> {
   bool _isProcessingWithAI = false;
 
   @override
+  void initState() {
+    super.initState();
+    if (widget.isActive) unawaited(_initializeDetector());
+  }
+
+  @override
   void didUpdateWidget(covariant CameraScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.isActive && !widget.isActive) {
       _isReleasingAI = true;
       unawaited(_releaseAIWhenIdle());
+    } else if (!oldWidget.isActive && widget.isActive) {
+      _isReleasingAI = false;
+      unawaited(_initializeDetector());
     }
   }
 
   void _onCameraReady() {
     if (!mounted || !widget.isActive) return;
-    debugPrint('CameraScreen: cámara lista; iniciando MegaDetector');
-    unawaited(_initializeDetector());
+    debugPrint('CameraScreen: cámara lista; MegaDetector ya está cargado');
   }
 
   Future<void> _initializeDetector() async {
@@ -193,6 +201,7 @@ class _CameraScreenState extends State<CameraScreen> {
         '[CameraScreen] Archivo recibido para análisis: ${imageFile.path}, '
         '${bytes.length} bytes',
       );
+      final decodingStopwatch = Stopwatch()..start();
       final decodedImage = img.decodeImage(bytes);
       if (decodedImage == null) {
         throw Exception('No se pudo decodificar la imagen capturada');
@@ -201,7 +210,8 @@ class _CameraScreenState extends State<CameraScreen> {
       debugPrint(
         '[CameraScreen] Imagen enviada al flujo IA: '
         '${decodedImage.width}x${decodedImage.height}; '
-        'orientada=${image.width}x${image.height}',
+        'orientada=${image.width}x${image.height}; '
+        'decodificacion=${decodingStopwatch.elapsedMilliseconds} ms',
       );
       final inference = Completer<void>();
       _inferenceCompletion = inference;
@@ -344,13 +354,76 @@ class _CameraScreenState extends State<CameraScreen> {
         children: [
           Positioned.fill(
             child: CameraWidget(
-              isActive: widget.isActive,
+              isActive: widget.isActive && _isDetectorReady,
               onImageCaptured: _onImageCaptured,
               onCameraReady: _onCameraReady,
             ),
           ),
+          if (widget.isActive && !_isDetectorReady && !_isProcessing)
+            _buildDetectorStatus(),
           if (_isProcessing) _buildProcessingDialog(),
         ],
+      ),
+    );
+  }
+
+  Widget _buildDetectorStatus() {
+    final error = _detectorError;
+    return Center(
+      child: Material(
+        color: Colors.transparent,
+        child: Container(
+          margin: const EdgeInsets.all(24),
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+          decoration: BoxDecoration(
+            color: context.palette.cameraSurface,
+            borderRadius: const BorderRadius.all(Radius.circular(16)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (error == null)
+                CircularProgressIndicator(
+                  color: context.palette.cameraForeground,
+                )
+              else
+                Icon(
+                  Icons.error_outline,
+                  color: context.palette.cameraForeground,
+                  size: 32,
+                ),
+              const SizedBox(height: 16),
+              Text(
+                error == null
+                    ? 'Preparando detector...'
+                    : 'No se pudo iniciar MegaDetector.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: context.palette.cameraForeground,
+                  fontSize: 16,
+                ),
+              ),
+              if (error != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  error,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: context.palette.cameraForeground,
+                    fontSize: 12,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                FilledButton(
+                  onPressed: _isDetectorInitializing
+                      ? null
+                      : () => unawaited(_initializeDetector()),
+                  child: const Text('Reintentar'),
+                ),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }

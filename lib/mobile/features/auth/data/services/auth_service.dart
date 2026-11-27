@@ -56,23 +56,19 @@ class AuthService {
     required String email,
     required String password,
   }) async {
-    try {
-      final response = await _supabaseService.client.auth.signInWithPassword(
-        email: email,
-        password: password,
-      );
+    final response = await _supabaseService.client.auth.signInWithPassword(
+      email: email,
+      password: password,
+    );
 
-      if (response.user != null) {
-        return UserModel(
-          id: response.user!.id,
-          email: response.user!.email ?? email,
-          createdAt: DateTime.parse(response.user!.createdAt),
-        );
-      }
-      return null;
-    } catch (e) {
-      throw Exception('Error en inicio de sesión: ${e.toString()}');
+    if (response.user != null) {
+      return UserModel(
+        id: response.user!.id,
+        email: response.user!.email ?? email,
+        createdAt: DateTime.parse(response.user!.createdAt),
+      );
     }
+    return null;
   }
 
   Future<void> signOut() async {
